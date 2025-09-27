@@ -57,6 +57,13 @@
         .cut-piece.dragging { opacity: 0.5; z-index: 1000; }
         .cut-piece .dimensions { font-weight: bold; margin-bottom: 2px; }
         .cut-piece .label { font-size: 10px; color: #666; }
+    /* Unplaced piece warnings */
+    .placement-warning { font-size:10px; font-weight:600; color:#fff; background:#dc3545; border-radius:10px; padding:2px 5px; display:inline-block; margin-right:4px; line-height:1; box-shadow:0 0 0 1px rgba(0,0,0,0.08); }
+    .placement-warning[hidden] { display:none !important; }
+    .panel-item.unplaced { background:#ffecec; }
+    #unplacedPiecesRow { font-weight:600; }
+    #unplacedPiecesRow.highlight { animation: pulseWarn 1.2s ease-in-out 3; }
+    @keyframes pulseWarn { 0%,100% { background:transparent; } 50% { background:rgba(220,53,69,0.15); } }
         .stats-panel { position: absolute; top: 20px; right: 20px; background: white; border: 1px solid #ddd; border-radius: 4px; padding: 12px; min-width: 200px; font-size: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .stats-panels { position: absolute; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 12px; z-index: 10; }
         .stats-panels .stats-panel { position: static; top: auto; right: auto; }
@@ -160,6 +167,7 @@
                     <div class="stat-row"><span>Total used area</span><span id="totalUsed">0</span></div>
                     <div class="stat-row"><span>Total wasted area</span><span id="totalWasted">0</span></div>
                     <div class="stat-row"><span>Total cuts</span><span id="totalCuts">0</span></div>
+                    <div class="stat-row" id="unplacedPiecesRow" style="display:none;"><span>Unplaced pieces</span><span id="unplacedPiecesCount">0</span></div>
                     <div class="stat-row"><span>Optimization priority</span><span>Least wasted area</span></div>
                 </div>
                 <div class="stats-panel" id="panelDetailsPanel">
@@ -220,14 +228,17 @@
 
         function addPanel() { const lengthInput = document.getElementById('newLength'); const widthInput = document.getElementById('newWidth'); const labelInput = document.getElementById('newLabel'); const qtyInput = document.getElementById('newQty'); const length = parseFloat(lengthInput.value || lengthInput.placeholder); const width = parseFloat(widthInput.value || widthInput.placeholder); const qty = parseInt(qtyInput.value || qtyInput.placeholder || '1') || 1; const label = (labelInput.value || '').trim(); if (!isNaN(length) && !isNaN(width) && length > 0 && width > 0) { panels.push({ length, width, qty, label }); renderPanels(); optimizeCutting(); saveState(); lengthInput.value=''; widthInput.value=''; labelInput.value=''; qtyInput.value='1'; } else { console.warn('Panel not added: provide valid numeric length & width.'); } }
         function removePanel(index) { panels.splice(index, 1); renderPanels(); optimizeCutting(); saveState(); }
-        function renderPanels() { const container = document.getElementById('panelList'); container.innerHTML=''; panels.forEach((panel, index) => { const div = document.createElement('div'); div.className = 'panel-item'; const fracL = toSixteenthFraction(panel.length); const fracW = toSixteenthFraction(panel.width); div.innerHTML = `
+        function renderPanels(unplacedMap) { const container = document.getElementById('panelList'); container.innerHTML=''; panels.forEach((panel, index) => { const div = document.createElement('div'); div.className = 'panel-item'; const fracL = toSixteenthFraction(panel.length); const fracW = toSixteenthFraction(panel.width); const unplacedCount = unplacedMap && unplacedMap[index] ? unplacedMap[index] : 0; if (unplacedCount>0) div.classList.add('unplaced'); div.innerHTML = `
                     <input type="number" value="${panel.length}" onchange="updatePanel(${index}, 'length', this.value)" step="0.01" title="Decimal length">
                     <input type="number" value="${panel.width}" onchange="updatePanel(${index}, 'width', this.value)" step="0.01" title="Decimal width">
                     <div class="fraction-cell" data-panel-index="${index}" data-fraction-type="L" title="Nearest 1/16\"">${fracL}</div>
                     <div class="fraction-cell" data-panel-index="${index}" data-fraction-type="W" title="Nearest 1/16\"">${fracW}</div>
                     <input type="text" value="${panel.label || ''}" onchange="updatePanel(${index}, 'label', this.value)" placeholder="Label" title="Label shown on layout">
                     <input type="number" value="${panel.qty}" onchange="updatePanel(${index}, 'qty', this.value)" min="1" class="qty">
-                    <div class="actions"><button class="btn btn-sm btn-danger" onclick="removePanel(${index})" title="Remove">✕</button></div>`; container.appendChild(div); }); }
+                    <div class="actions">
+                        ${unplacedCount>0?`<span class="placement-warning" title="Unplaced pieces for this panel">${unplacedCount}</span>`:''}
+                        <button class="btn btn-sm btn-danger" onclick="removePanel(${index})" title="Remove">✕</button>
+                    </div>`; container.appendChild(div); }); }
         function toSixteenthFraction(value) { if (isNaN(value)) return ''; const inches = Math.floor(value); const remainder = value - inches; let sixteenths = Math.round(remainder * 16); if (sixteenths === 16) { return (inches + 1).toString(); } if (sixteenths === 0) return inches.toString(); const gcd = (a,b)=> b ? gcd(b, a%b) : a; const g = gcd(sixteenths, 16); const num = sixteenths / g; const den = 16 / g; return inches > 0 ? `${inches} ${num}/${den}` : `${num}/${den}`; }
         function updatePanel(index, field, value) { if (field === 'qty') { panels[index][field] = parseInt(value) || 1; } else if (field === 'label') { panels[index].label = (value || '').trim(); updateRenderedPieceLabels(); } else { panels[index][field] = parseFloat(value) || 0; updatePanelFractions(index); } saveState(); optimizeCutting(); }
         function updatePanelFractions(index) { const panel = panels[index]; if (!panel) return; const fracL = toSixteenthFraction(panel.length); const fracW = toSixteenthFraction(panel.width); const lCell = document.querySelector(`.fraction-cell[data-panel-index="${index}"][data-fraction-type="L"]`); const wCell = document.querySelector(`.fraction-cell[data-panel-index="${index}"][data-fraction-type="W"]`); if (lCell) lCell.textContent = fracL; if (wCell) wCell.textContent = fracW; }
@@ -287,6 +298,7 @@
             });
             allPieces.sort((a,b)=> (b.length*b.width)-(a.length*a.width));
             const placedRects = [];
+            const unplacedPieces = [];
             allPieces.forEach(piece => {
                 for (let sIdx=0; sIdx<expandedSheets.length; sIdx++) {
                     const sheet = expandedSheets[sIdx];
@@ -300,10 +312,33 @@
                         return; // proceed to next piece
                     }
                 }
-                // If we reach here, piece did not fit any sheet (currently just skipped)
+                // If we reach here, piece did not fit any sheet
+                unplacedPieces.push(piece);
             });
             updateStatsMulti(placedRects, expandedSheets);
+            updateUnplacedUI(unplacedPieces);
             saveState();
+        }
+        function updateUnplacedUI(unplacedPieces) {
+            const row = document.getElementById('unplacedPiecesRow');
+            const countSpan = document.getElementById('unplacedPiecesCount');
+            if (!row || !countSpan) return;
+            const total = unplacedPieces.length;
+            if (total>0) {
+                row.style.display='flex';
+                countSpan.textContent = total;
+                // Build per-panel map
+                const map = {};
+                unplacedPieces.forEach(p=>{ map[p.panelIndex] = (map[p.panelIndex]||0)+1; });
+                renderPanels(map);
+                // highlight row
+                row.classList.add('highlight');
+                setTimeout(()=>row.classList.remove('highlight'),1600);
+            } else {
+                row.style.display='none';
+                countSpan.textContent = '0';
+                renderPanels();
+            }
         }
         function findBestPositionMulti(piece, placedRectsOnSheet, sheet, kerf) { const positions=[{x:0,y:0}]; placedRectsOnSheet.forEach(rect=>{ positions.push({x:rect.x+rect.length+kerf,y:rect.y}); positions.push({x:rect.x,y:rect.y+rect.width+kerf}); positions.push({x:rect.x+rect.length+kerf,y:rect.y+rect.width+kerf}); }); positions.sort((a,b)=> a.y===b.y? a.x-b.x : a.y-b.y); for (const pos of positions) { if (canPlacePieceMulti(piece,pos.x,pos.y,placedRectsOnSheet,sheet,kerf)) return pos; const rotated={length:piece.width,width:piece.length}; if (canPlacePieceMulti(rotated,pos.x,pos.y,placedRectsOnSheet,sheet,kerf)) { piece.length=rotated.length; piece.width=rotated.width; return pos; } } return null; }
         function canPlacePieceMulti(piece,x,y,placedRectsOnSheet,sheet,kerf){ if (x+piece.length>sheet.length || y+piece.width>sheet.width) return false; for (const rect of placedRectsOnSheet){ if (!(x >= rect.x + rect.length + kerf || x + piece.length + kerf <= rect.x || y >= rect.y + rect.width + kerf || y + piece.width + kerf <= rect.y)) return false; } return true; }
