@@ -5,407 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wood Cutting Optimizer</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f5f5;
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        .sidebar {
-            /* Initial width; will be overridden inline when user resizes */
-            width: 320px;
-            background: white;
-            border-right: 1px solid #ddd;
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
-            position: relative;
-            flex: 0 0 auto; /* Prevent flex from shrinking when width set */
-            min-width: 240px;
-            max-width: 640px;
-        }
-
-        .sidebar.resizing {
-            user-select: none;
-            cursor: col-resize;
-        }
-
-        .sidebar-resizer {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 6px;
-            height: 100%;
-            cursor: col-resize;
-            background: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,123,255,0.15) 100%);
-            opacity: 0;
-            transition: opacity 0.15s;
-        }
-
-        .sidebar:hover .sidebar-resizer,
-        .sidebar.resizing .sidebar-resizer {
-            opacity: 1;
-        }
-
-        .section {
-            border-bottom: 1px solid #eee;
-        }
-
-        .section-header {
-            background: #f8f9fa;
-            padding: 8px 12px;
-            font-weight: 600;
-            font-size: 13px;
-            color: #495057;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .section-header::after {
-            content: '▼';
-            font-size: 10px;
-            transition: transform 0.2s;
-        }
-
-        .section.collapsed .section-header::after {
-            transform: rotate(-90deg);
-        }
-
-        .section-content {
-            padding: 12px;
-            display: block;
-        }
-
-        .section.collapsed .section-content {
-            display: none;
-        }
-
-        .panel-list {
-            max-height: 200px;
-            overflow-y: auto;
-        }
-
-        .panel-item {
-            display: grid;
-            /* Length | Width | Fraction L | Fraction W | Label | Qty | Actions */
-            grid-template-columns: 60px 50px 70px 70px 90px 40px 1fr;
-            gap: 8px;
-            padding: 4px 0;
-            align-items: center;
-            font-size: 12px;
-            border-bottom: 1px solid #f0f0f0;
-        }
-
-        .panel-item:last-child {
-            border-bottom: none;
-        }
-
-        .panel-item input {
-            width: 100%;
-            padding: 2px 4px;
-            border: 1px solid #ddd;
-            border-radius: 2px;
-            font-size: 11px;
-        }
-
-        .panel-item .qty {
-            text-align: center;
-        }
-
-        .panel-item .actions {
-            display: flex;
-            gap: 2px;
-        }
-
-        .btn {
-            background: #007bff;
-            color: white;
-            border: none;
-            padding: 4px 8px;
-            border-radius: 2px;
-            font-size: 11px;
-            cursor: pointer;
-        }
-
-        .btn:hover {
-            background: #0056b3;
-        }
-
-        .btn.btn-sm {
-            padding: 2px 4px;
-            font-size: 10px;
-        }
-
-        .btn.btn-danger {
-            background: #dc3545;
-        }
-
-        .btn.btn-danger:hover {
-            background: #c82333;
-        }
-
-        .btn.btn-success {
-            background: #28a745;
-        }
-
-        .add-panel {
-            margin-top: 8px;
-        }
-
-        .stock-sheet-input {
-            display: grid;
-            /* Columns: Length | Width | Rotate Button */
-            grid-template-columns: 82px 82px 70px;
-            gap: 8px;
-            margin-bottom: 12px;
-            justify-content: start; /* Prevent stretching */
-            align-items: center;
-        }
-
-        .stock-sheet-input input {
-            padding: 4px;
-            border: 1px solid #ddd;
-            border-radius: 2px;
-            font-size: 12px;
-            width: 100%;
-        }
-
-        .options {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .option {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 12px;
-        }
-
-        .option input[type="number"] {
-            width: 60px;
-            padding: 2px 4px;
-            border: 1px solid #ddd;
-            border-radius: 2px;
-        }
-
-        .toggle {
-            width: 40px;
-            height: 20px;
-            background: #ddd;
-            border-radius: 10px;
-            position: relative;
-            cursor: pointer;
-        }
-
-        .toggle.active {
-            background: #007bff;
-        }
-
-        .toggle::after {
-            content: '';
-            width: 16px;
-            height: 16px;
-            background: white;
-            border-radius: 50%;
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            transition: left 0.2s;
-        }
-
-        .toggle.active::after {
-            left: 22px;
-        }
-
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .canvas-container {
-            flex: 1;
-            position: relative;
-            overflow: auto;
-            background: white;
-            padding: 20px;
-        }
-
-        .cutting-board {
-            border: 2px solid #333;
-            background: #f8f9fa;
-            position: relative;
-            margin: 20px;
-            /* Removed min-width/min-height so zooming below ~80% can continue shrinking.
-               If a safety floor is desired, reintroduce via JS based on current scale. */
-            min-width: 0;
-            min-height: 0;
-        }
-
-        .cut-piece {
-            position: absolute;
-            border: 1px solid #666;
-            background: rgba(255, 255, 255, 0.8);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            font-size: 11px;
-            font-weight: 500;
-            cursor: move;
-            user-select: none;
-        }
-
-        .cut-piece:nth-child(odd) {
-            background: rgba(220, 230, 255, 0.7);
-        }
-
-        .cut-piece:nth-child(even) {
-            background: rgba(255, 220, 220, 0.7);
-        }
-
-        .cut-piece.dragging {
-            opacity: 0.5;
-            z-index: 1000;
-        }
-
-        .cut-piece .dimensions {
-            font-weight: bold;
-            margin-bottom: 2px;
-        }
-
-        .cut-piece .label {
-            font-size: 10px;
-            color: #666;
-        }
-
-        .stats-panel {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 12px;
-            min-width: 200px;
-            font-size: 12px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .stats-panel h4 {
-            margin-bottom: 8px;
-            color: #495057;
-            font-size: 13px;
-        }
-
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 4px;
-        }
-
-        .optimize-btn {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            background: #28a745;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 4px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .optimize-btn:hover {
-            background: #218838;
-        }
-
-        .waste-area {
-            background: rgba(255, 0, 0, 0.1) !important;
-            border: 1px dashed #ff0000 !important;
-        }
-
-        .dragging-over {
-            background: rgba(0, 123, 255, 0.1) !important;
-        }
-
-        .panel-headers {
-            display: grid;
-            /* Length | Width | Fraction L | Fraction W | Label | Qty | Actions */
-            grid-template-columns: 60px 50px 64px 64px 90px 40px 1fr; /* Slightly narrower fraction columns */
-            gap: 8px;
-            font-weight: 600;
-            font-size: 11px;
-            color: #666;
-            padding: 4px 0;
-            border-bottom: 1px solid #ddd;
-            margin-bottom: 8px;
-            min-width: 480px; /* Ensure grid doesn't collapse too small; triggers horizontal scroll if needed */
-        }
-        .fraction-cell {
-            font-size: 11px;
-            color: #444;
-            font-family: 'Segoe UI', Roboto, sans-serif;
-            padding: 2px 0;
-            line-height: 1.1;
-            white-space: nowrap;
-        }
-        .zoom-controls {
-            position: absolute;
-            right: 20px; /* align with stats/optimize horizontal padding */
-            bottom: 100px; /* sit above Optimize button (20px bottom + ~60px button height + margin) */
-            top: auto;
-            left: auto;
-            transform: none;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            padding: 10px 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-            font-size: 11px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.12);
-            z-index: 20;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; display: flex; height: 100vh; overflow: hidden; }
+        .sidebar { width: 320px; background: white; border-right: 1px solid #ddd; display: flex; flex-direction: column; overflow-y: auto; position: relative; flex: 0 0 auto; min-width: 240px; max-width: 640px; }
+        .sidebar.resizing { user-select: none; cursor: col-resize; }
+        .sidebar-resizer { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; background: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,123,255,0.15) 100%); opacity: 0; transition: opacity 0.15s; }
+        .sidebar:hover .sidebar-resizer, .sidebar.resizing .sidebar-resizer { opacity: 1; }
+        .section { border-bottom: 1px solid #eee; }
+        .section-header { background: #f8f9fa; padding: 8px 12px; font-weight: 600; font-size: 13px; color: #495057; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+        .section-header::after { content: '▼'; font-size: 10px; transition: transform 0.2s; }
+        .section.collapsed .section-header::after { transform: rotate(-90deg); }
+        .section-content { padding: 12px; display: block; }
+        .section.collapsed .section-content { display: none; }
+        .panel-list { max-height: 200px; overflow-y: auto; }
+        .panel-item { display: grid; grid-template-columns: 60px 50px 70px 70px 90px 40px 1fr; gap: 8px; padding: 4px 0; align-items: center; font-size: 12px; border-bottom: 1px solid #f0f0f0; }
+        .panel-item:last-child { border-bottom: none; }
+        .panel-item input { width: 100%; padding: 2px 4px; border: 1px solid #ddd; border-radius: 2px; font-size: 11px; }
+        .panel-item .qty { text-align: center; }
+        .panel-item .actions { display: flex; gap: 2px; }
+        .btn { background: #007bff; color: white; border: none; padding: 4px 8px; border-radius: 2px; font-size: 11px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+        .btn.btn-sm { padding: 2px 4px; font-size: 10px; }
+        .btn.btn-danger { background: #dc3545; }
+        .btn.btn-danger:hover { background: #c82333; }
+        .btn.btn-success { background: #28a745; }
+        .add-panel { margin-top: 8px; }
+        .stock-sheet-input { display: grid; grid-template-columns: 82px 82px 70px; gap: 8px; margin-bottom: 12px; justify-content: start; align-items: center; }
+        .stock-sheet-input input { padding: 4px; border: 1px solid #ddd; border-radius: 2px; font-size: 12px; width: 100%; }
+        .options { display: flex; flex-direction: column; gap: 8px; }
+        .option { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+        .option input[type="number"] { width: 60px; padding: 2px 4px; border: 1px solid #ddd; border-radius: 2px; }
+        .toggle { width: 40px; height: 20px; background: #ddd; border-radius: 10px; position: relative; cursor: pointer; }
+        .toggle.active { background: #007bff; }
+        .toggle::after { content: ''; width: 16px; height: 16px; background: white; border-radius: 50%; position: absolute; top: 2px; left: 2px; transition: left 0.2s; }
+        .toggle.active::after { left: 22px; }
+        .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .canvas-container { flex: 1; position: relative; overflow: auto; background: white; padding: 20px; }
+        .cutting-board { border: 2px solid #333; background: #f8f9fa; position: relative; margin: 20px; min-width: 0; min-height: 0; }
+        .cut-piece { position: absolute; border: 1px solid #666; background: rgba(255, 255, 255, 0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 11px; font-weight: 500; cursor: move; user-select: none; }
+        .cut-piece:nth-child(odd) { background: rgba(220, 230, 255, 0.7); }
+        .cut-piece:nth-child(even) { background: rgba(255, 220, 220, 0.7); }
+        /* Selected piece highlight */
+        .cut-piece.selected { outline: 2px solid #ff9800; outline-offset: -2px; box-shadow: 0 0 0 2px rgba(255,152,0,0.4); }
+        .cut-piece.dragging { opacity: 0.5; z-index: 1000; }
+        .cut-piece .dimensions { font-weight: bold; margin-bottom: 2px; }
+        .cut-piece .label { font-size: 10px; color: #666; }
+        .stats-panel { position: absolute; top: 20px; right: 20px; background: white; border: 1px solid #ddd; border-radius: 4px; padding: 12px; min-width: 200px; font-size: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        /* New stack wrapper for stats + panel details */
+        .stats-panels { position: absolute; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 12px; z-index: 10; }
+        .stats-panels .stats-panel { position: static; top: auto; right: auto; }
+        .stats-panel h4 { margin-bottom: 8px; color: #495057; font-size: 13px; }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .optimize-btn { position: absolute; bottom: 20px; right: 20px; background: #28a745; color: white; border: none; padding: 12px 24px; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .optimize-btn:hover { background: #218838; }
+        .waste-area { background: rgba(255, 0, 0, 0.1) !important; border: 1px dashed #ff0000 !important; }
+        .dragging-over { background: rgba(0, 123, 255, 0.1) !important; }
+        .panel-headers { display: grid; grid-template-columns: 60px 50px 64px 64px 90px 40px 1fr; gap: 8px; font-weight: 600; font-size: 11px; color: #666; padding: 4px 0; border-bottom: 1px solid #ddd; margin-bottom: 8px; min-width: 480px; }
+        .fraction-cell { font-size: 11px; color: #444; font-family: 'Segoe UI', Roboto, sans-serif; padding: 2px 0; line-height: 1.1; white-space: nowrap; }
+        .zoom-controls { position: absolute; right: 20px; bottom: 100px; top: auto; left: auto; transform: none; background: white; border: 1px solid #ddd; border-radius: 6px; padding: 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; box-shadow: 0 2px 4px rgba(0,0,0,0.12); z-index: 20; }
         .zoom-controls #zoomPercent { font-weight: 600; }
         .zoom-controls button { width: 100%; }
-        /* Native vertical slider attempt (Firefox supports) */
-        .zoom-controls input[type=range].vertical-range {
-            writing-mode: bt-lr; /* IE/Edge legacy */
-            appearance: slider-vertical; /* Standard */
-            -webkit-appearance: slider-vertical; /* WebKit (not fully standardized) */
-            width: 8px;
-            height: 180px;
-            padding: 0;
-        }
-        /* Fallback: rotate if vertical appearance unsupported */
-        @supports not (-webkit-appearance: slider-vertical) {
-            .zoom-controls input[type=range].vertical-range {
-                appearance: none;
-                -webkit-appearance: none;
-                transform: rotate(-90deg);
-                width: 180px; /* becomes height visually */
-                height: 8px;
-            }
-        }
+        .zoom-controls input[type=range].vertical-range { writing-mode: bt-lr; appearance: slider-vertical; -webkit-appearance: slider-vertical; width: 8px; height: 180px; padding: 0; }
+        @supports not (-webkit-appearance: slider-vertical) { .zoom-controls input[type=range].vertical-range { appearance: none; -webkit-appearance: none; transform: rotate(-90deg); width: 180px; height: 8px; } }
     </style>
 </head>
 <body>
@@ -423,9 +84,7 @@
                     <div>Qty</div>
                     <div></div>
                 </div>
-                <div class="panel-list" id="panelList">
-                    <!-- Panels will be added here -->
-                </div>
+                <div class="panel-list" id="panelList"></div>
                 <div class="add-panel">
                     <div style="display: grid; grid-template-columns: 60px 50px 90px 40px 1fr; gap: 8px; margin-bottom: 8px;">
                         <input type="number" id="newLength" placeholder="24" step="0.01">
@@ -437,7 +96,6 @@
                 </div>
             </div>
         </div>
-
         <div class="section">
             <div class="section-header">📦 Stock Sheets</div>
             <div class="section-content">
@@ -447,621 +105,138 @@
                     <button class="btn btn-sm" onclick="rotateStockSheet()" title="Swap length & width">↔ Rotate</button>
                 </div>
                 <button class="btn" onclick="addStockSheet()" title="Apply new length & width">Update Stock Sheet</button>
-                <div style="margin-top: 8px; font-size: 11px; color: #666;">
-                    Current: <span id="currentStockDisplay">96 × 48</span>
-                </div>
+                <div style="margin-top: 8px; font-size: 11px; color: #666;">Current: <span id="currentStockDisplay">96 × 48</span></div>
             </div>
         </div>
-
         <div class="section">
             <div class="section-header">⚙️ Options</div>
             <div class="section-content">
                 <div class="options">
-                    <div class="option">
-                        <span>Cut/blade/kerf thickness</span>
-                        <input type="number" id="kerfThickness" value="0.25" step="0.01">
-                    </div>
+                    <div class="option"><span>Cut/blade/kerf thickness</span><input type="number" id="kerfThickness" value="0.25" step="0.01"></div>
                 </div>
             </div>
         </div>
     </div>
-
     <div class="main-content">
         <div class="canvas-container">
-            <div class="cutting-board" id="cuttingBoard">
-                <!-- Cut pieces will be placed here -->
-            </div>
+            <div class="cutting-board" id="cuttingBoard"></div>
             <div class="zoom-controls">
                 <div id="zoomPercent">100%</div>
                 <input class="vertical-range" type="range" id="zoomSlider" min="25" max="300" value="100" step="5" title="Zoom the layout">
                 <button class="btn btn-sm" id="zoomResetBtn" title="Reset zoom to 100%">Reset</button>
             </div>
-            
-            <div class="stats-panel">
-                <h4>Global Statistics</h4>
-                <div class="stat-row"><span>Used stock sheets</span><span id="usedSheets">0</span></div>
-                <div class="stat-row"><span>Total used area</span><span id="totalUsed">0</span></div>
-                <div class="stat-row"><span>Total wasted area</span><span id="totalWasted">0</span></div>
-                <div class="stat-row"><span>Total cuts</span><span id="totalCuts">0</span></div>
-                <div class="stat-row"><span>Optimization priority</span><span>Least wasted area</span></div>
+            <!-- Reworked stats area to include Panel Details -->
+            <div class="stats-panels">
+                <div class="stats-panel" id="globalStatsPanel">
+                    <h4>Global Statistics</h4>
+                    <div class="stat-row"><span>Used stock sheets</span><span id="usedSheets">0</span></div>
+                    <div class="stat-row"><span>Total used area</span><span id="totalUsed">0</span></div>
+                    <div class="stat-row"><span>Total wasted area</span><span id="totalWasted">0</span></div>
+                    <div class="stat-row"><span>Total cuts</span><span id="totalCuts">0</span></div>
+                    <div class="stat-row"><span>Optimization priority</span><span>Least wasted area</span></div>
+                </div>
+                <div class="stats-panel" id="panelDetailsPanel">
+                    <h4>Panel Details</h4>
+                    <div id="panelDetailsContent" style="font-size:11px; color:#666;">Select a panel on the layout.</div>
+                </div>
             </div>
-            
             <button class="optimize-btn" onclick="optimizeCutting()">Optimize Layout</button>
         </div>
     </div>
-
     <script>
         // Global state
         let panels = [];
-    let stockSheets = [{ length: 96, width: 48 }];
+        let stockSheets = [{ length: 96, width: 48 }];
         let placedPieces = [];
         let draggedElement = null;
         let dragOffset = { x: 0, y: 0 };
         let isResizingSidebar = false;
         // Zoom/base scale
-        let baseScale = 1; // Fit-to-window scale (before user zoom)
-        let userZoom = 1;  // User-selected zoom multiplier (1 = 100%)
-
-        // Persistence key
+        let baseScale = 1;
+        let userZoom = 1;
+        // Selected piece element
+        let selectedPieceEl = null;
         const STORAGE_KEY = 'woodCuttingOptimizerState_v1';
-
         function saveState() {
             try {
-                const state = {
-                    version: 1,
-                    panels: panels.map(p => ({ length: +p.length, width: +p.width, qty: +p.qty, label: p.label || '' })),
-                    stockSheet: { length: stockSheets[0].length, width: stockSheets[0].width },
-                    kerf: parseFloat(document.getElementById('kerfThickness').value) || 0.25,
-                    zoom: userZoom
-                };
+                const state = { version: 1, panels: panels.map(p => ({ length: +p.length, width: +p.width, qty: +p.qty, label: p.label || '' })), stockSheet: { length: stockSheets[0].length, width: stockSheets[0].width }, kerf: parseFloat(document.getElementById('kerfThickness').value) || 0.25, zoom: userZoom };
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-            } catch (e) {
-                console.warn('Failed to save state', e);
-            }
+            } catch (e) { console.warn('Failed to save state', e); }
         }
-
         function loadState() {
             try {
                 const raw = localStorage.getItem(STORAGE_KEY);
                 if (!raw) return false;
                 const state = JSON.parse(raw);
                 if (!state || typeof state !== 'object') return false;
-
-                // Basic validation
-                if (Array.isArray(state.panels)) {
-                    panels = state.panels.filter(p => p && p.length > 0 && p.width > 0 && p.qty > 0).map(p => ({...p, label: p.label || ''}));
-                }
-                if (state.stockSheet && state.stockSheet.length > 0 && state.stockSheet.width > 0) {
-                    stockSheets = [{ length: +state.stockSheet.length, width: +state.stockSheet.width }];
-                }
-                if (state.kerf !== undefined) {
-                    document.getElementById('kerfThickness').value = +state.kerf;
-                }
-                if (state.zoom && typeof state.zoom === 'number') {
-                    userZoom = state.zoom;
-                    const slider = document.getElementById('zoomSlider');
-                    if (slider) slider.value = Math.round(userZoom * 100);
-                }
+                if (Array.isArray(state.panels)) { panels = state.panels.filter(p => p && p.length > 0 && p.width > 0 && p.qty > 0).map(p => ({...p, label: p.label || ''})); }
+                if (state.stockSheet && state.stockSheet.length > 0 && state.stockSheet.width > 0) { stockSheets = [{ length: +state.stockSheet.length, width: +state.stockSheet.width }]; }
+                if (state.kerf !== undefined) { document.getElementById('kerfThickness').value = +state.kerf; }
+                if (state.zoom && typeof state.zoom === 'number') { userZoom = state.zoom; const slider = document.getElementById('zoomSlider'); if (slider) slider.value = Math.round(userZoom * 100); }
                 return true;
-            } catch (e) {
-                console.warn('Failed to load saved state', e);
-                return false;
-            }
+            } catch (e) { console.warn('Failed to load saved state', e); return false; }
         }
-
-        // Sidebar resize setup
-        (function initSidebarResize() {
-            const sidebar = document.getElementById('sidebar');
-            const handle = document.getElementById('sidebarResizer');
-            // Restore previous width if stored
-            const saved = localStorage.getItem('sidebarWidth');
-            if (saved) {
-                const w = parseInt(saved, 10);
-                if (!isNaN(w)) sidebar.style.width = w + 'px';
-            }
-
-            const minW = 240;
-            const maxW = 640;
-
-            const onMouseMove = (e) => {
-                if (!isResizingSidebar) return;
-                const newWidth = Math.min(maxW, Math.max(minW, e.clientX));
-                sidebar.style.width = newWidth + 'px';
-            };
-
-            const onMouseUp = () => {
-                if (isResizingSidebar) {
-                    isResizingSidebar = false;
-                    sidebar.classList.remove('resizing');
-                    localStorage.setItem('sidebarWidth', parseInt(sidebar.getBoundingClientRect().width, 10));
-                    window.removeEventListener('mousemove', onMouseMove);
-                    window.removeEventListener('mouseup', onMouseUp);
-                }
-            };
-
-            handle.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                isResizingSidebar = true;
-                sidebar.classList.add('resizing');
-                window.addEventListener('mousemove', onMouseMove);
-                window.addEventListener('mouseup', onMouseUp);
-            });
-        })();
-
-        // Initialize (attempt load; else seed defaults)
-        (function init() {
-            const loaded = loadState();
-            if (!loaded) {
-                const defaultPanels = [
-                    { length: 24, width: 14.62, qty: 2, label: 'Panel A' },
-                    { length: 20.98, width: 9.74, qty: 1, label: 'Panel B' },
-                    { length: 24, width: 9.74, qty: 1, label: 'Panel C' },
-                    { length: 13.36, width: 9.74, qty: 1, label: 'Panel D' },
-                    { length: 13.99, width: 9.74, qty: 1, label: 'Panel E' },
-                    { length: 10.97, width: 9.74, qty: 1, label: 'Panel F' },
-                    { length: 14.18, width: 9.74, qty: 1, label: 'Panel G' }
-                ];
-                panels = defaultPanels.slice();
-            }
-            renderPanels();
-            updateCuttingBoard();
-            updateStockDisplay();
-            optimizeCutting();
-            // Apply persisted zoom (updateZoom also updates percent label)
-            updateZoom();
-        })();
-
-        function addPanel() {
-            // Grab inputs & fall back to placeholders if user left them blank (placeholders show suggested defaults)
-            const lengthInput = document.getElementById('newLength');
-            const widthInput = document.getElementById('newWidth');
-            const labelInput = document.getElementById('newLabel');
-            const qtyInput = document.getElementById('newQty');
-
-            const length = parseFloat(lengthInput.value || lengthInput.placeholder);
-            const width = parseFloat(widthInput.value || widthInput.placeholder);
-            const qty = parseInt(qtyInput.value || qtyInput.placeholder || '1') || 1;
-            const label = (labelInput.value || '').trim();
-
-            // Only add if numeric & positive
-            if (!isNaN(length) && !isNaN(width) && length > 0 && width > 0) {
-                panels.push({ length, width, qty, label });
-                renderPanels();
-                // Immediately re-run optimization to include the new panel pieces
-                optimizeCutting();
-                saveState();
-                // Clear the length/width inputs (qty resets to 1)
-                lengthInput.value = '';
-                widthInput.value = '';
-                labelInput.value = '';
-                qtyInput.value = '1';
-            } else {
-                // Light feedback via console; (UI message could be enhancement later)
-                console.warn('Panel not added: provide valid numeric length & width.');
-            }
-        }
-
-        function removePanel(index) {
-            panels.splice(index, 1);
-            renderPanels();
-            // Re-run optimization immediately after a panel is removed
-            optimizeCutting();
-            saveState();
-        }
-
-        function renderPanels() {
-            const container = document.getElementById('panelList');
-            container.innerHTML = '';
-
-            panels.forEach((panel, index) => {
-                const div = document.createElement('div');
-                div.className = 'panel-item';
-                const fracL = toSixteenthFraction(panel.length);
-                const fracW = toSixteenthFraction(panel.width);
-                div.innerHTML = `
+        (function initSidebarResize() { const sidebar = document.getElementById('sidebar'); const handle = document.getElementById('sidebarResizer'); const saved = localStorage.getItem('sidebarWidth'); if (saved) { const w = parseInt(saved, 10); if (!isNaN(w)) sidebar.style.width = w + 'px'; } const minW = 240; const maxW = 640; const onMouseMove = (e) => { if (!isResizingSidebar) return; const newWidth = Math.min(maxW, Math.max(minW, e.clientX)); sidebar.style.width = newWidth + 'px'; }; const onMouseUp = () => { if (isResizingSidebar) { isResizingSidebar = false; sidebar.classList.remove('resizing'); localStorage.setItem('sidebarWidth', parseInt(sidebar.getBoundingClientRect().width, 10)); window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); } }; handle.addEventListener('mousedown', (e) => { e.preventDefault(); isResizingSidebar = true; sidebar.classList.add('resizing'); window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp); }); })();
+        (function init() { const loaded = loadState(); if (!loaded) { const defaultPanels = [ { length: 24, width: 14.62, qty: 2, label: 'Panel A' }, { length: 20.98, width: 9.74, qty: 1, label: 'Panel B' }, { length: 24, width: 9.74, qty: 1, label: 'Panel C' }, { length: 13.36, width: 9.74, qty: 1, label: 'Panel D' }, { length: 13.99, width: 9.74, qty: 1, label: 'Panel E' }, { length: 10.97, width: 9.74, qty: 1, label: 'Panel F' }, { length: 14.18, width: 9.74, qty: 1, label: 'Panel G' } ]; panels = defaultPanels.slice(); } renderPanels(); updateCuttingBoard(); updateStockDisplay(); optimizeCutting(); updateZoom(); })();
+        function addPanel() { const lengthInput = document.getElementById('newLength'); const widthInput = document.getElementById('newWidth'); const labelInput = document.getElementById('newLabel'); const qtyInput = document.getElementById('newQty'); const length = parseFloat(lengthInput.value || lengthInput.placeholder); const width = parseFloat(widthInput.value || widthInput.placeholder); const qty = parseInt(qtyInput.value || qtyInput.placeholder || '1') || 1; const label = (labelInput.value || '').trim(); if (!isNaN(length) && !isNaN(width) && length > 0 && width > 0) { panels.push({ length, width, qty, label }); renderPanels(); optimizeCutting(); saveState(); lengthInput.value=''; widthInput.value=''; labelInput.value=''; qtyInput.value='1'; } else { console.warn('Panel not added: provide valid numeric length & width.'); } }
+        function removePanel(index) { panels.splice(index, 1); renderPanels(); optimizeCutting(); saveState(); }
+        function renderPanels() { const container = document.getElementById('panelList'); container.innerHTML=''; panels.forEach((panel, index) => { const div = document.createElement('div'); div.className = 'panel-item'; const fracL = toSixteenthFraction(panel.length); const fracW = toSixteenthFraction(panel.width); div.innerHTML = `
                     <input type="number" value="${panel.length}" onchange="updatePanel(${index}, 'length', this.value)" step="0.01" title="Decimal length">
                     <input type="number" value="${panel.width}" onchange="updatePanel(${index}, 'width', this.value)" step="0.01" title="Decimal width">
                     <div class="fraction-cell" data-panel-index="${index}" data-fraction-type="L" title="Nearest 1/16\"">${fracL}</div>
                     <div class="fraction-cell" data-panel-index="${index}" data-fraction-type="W" title="Nearest 1/16\"">${fracW}</div>
                     <input type="text" value="${panel.label || ''}" onchange="updatePanel(${index}, 'label', this.value)" placeholder="Label" title="Label shown on layout">
                     <input type="number" value="${panel.qty}" onchange="updatePanel(${index}, 'qty', this.value)" min="1" class="qty">
-                    <div class="actions">
-                        <button class="btn btn-sm btn-danger" onclick="removePanel(${index})" title="Remove">✕</button>
-                    </div>
-                `;
-                container.appendChild(div);
-            });
-        }
-
-        // Convert decimal inches to nearest 1/16" fraction string (e.g., 14 5/16)
-        function toSixteenthFraction(value) {
-            if (isNaN(value)) return '';
-            const inches = Math.floor(value);
-            const remainder = value - inches;
-            let sixteenths = Math.round(remainder * 16);
-            // Handle rollover (e.g., 15.99 rounds to next inch)
-            if (sixteenths === 16) {
-                return (inches + 1).toString();
-            }
-            if (sixteenths === 0) return inches.toString();
-            // Reduce fraction (e.g., 8/16 -> 1/2)
-            const gcd = (a,b)=> b ? gcd(b, a%b) : a;
-            const g = gcd(sixteenths, 16);
-            const num = sixteenths / g;
-            const den = 16 / g;
-            return inches > 0 ? `${inches} ${num}/${den}` : `${num}/${den}`;
-        }
-
-        function updatePanel(index, field, value) {
-            if (field === 'qty') {
-                panels[index][field] = parseInt(value) || 1;
-            } else if (field === 'label') {
-                panels[index].label = (value || '').trim();
-                updateRenderedPieceLabels();
-            } else {
-                panels[index][field] = parseFloat(value) || 0;
-                // Update fraction display live when length/width change
-                updatePanelFractions(index);
-            }
-            saveState();
-        }
-
-        // Refresh the fraction L/W cells for a specific panel row without re-rendering the entire list
-        function updatePanelFractions(index) {
-            const panel = panels[index];
-            if (!panel) return;
-            const fracL = toSixteenthFraction(panel.length);
-            const fracW = toSixteenthFraction(panel.width);
-            const lCell = document.querySelector(`.fraction-cell[data-panel-index="${index}"][data-fraction-type="L"]`);
-            const wCell = document.querySelector(`.fraction-cell[data-panel-index="${index}"][data-fraction-type="W"]`);
-            if (lCell) lCell.textContent = fracL;
-            if (wCell) wCell.textContent = fracW;
-        }
-
-        function addStockSheet() {
-            const length = parseFloat(document.getElementById('stockLength').value);
-            const width = parseFloat(document.getElementById('stockWidth').value);
-
-            if (length > 0 && width > 0) {
-                stockSheets = [{ length, width }];
-                updateCuttingBoard();
-                updateStockDisplay();
-                // Clear the cutting board and re-optimize with new dimensions
-                document.getElementById('cuttingBoard').innerHTML = '';
-                optimizeCutting();
-                saveState();
-            }
-        }
-
-        function rotateStockSheet() {
-            const lengthInput = document.getElementById('stockLength');
-            const widthInput = document.getElementById('stockWidth');
-            const currentLength = parseFloat(lengthInput.value);
-            const currentWidth = parseFloat(widthInput.value);
-            if (currentLength > 0 && currentWidth > 0) {
-                // Swap values in inputs
-                lengthInput.value = currentWidth;
-                widthInput.value = currentLength;
-                // Update model and re-render/optimize
-                stockSheets[0] = { length: currentWidth, width: currentLength };
-                updateCuttingBoard();
-                updateStockDisplay();
-                document.getElementById('cuttingBoard').innerHTML = '';
-                optimizeCutting();
-                saveState();
-            }
-        }
-
-        function updateStockDisplay() {
-            const sheet = stockSheets[0];
-            document.getElementById('currentStockDisplay').textContent = `${sheet.length} × ${sheet.width}`;
-        }
-
-        function updateCuttingBoard() {
-            const board = document.getElementById('cuttingBoard');
-            const sheet = stockSheets[0];
-            
-            // Calculate scale to fit within available space while maintaining proportions
-            const maxWidth = 700;  // Maximum width for the cutting board
-            const maxHeight = 500; // Maximum height for the cutting board
-            
-            const scaleX = maxWidth / sheet.length;
-            const scaleY = maxHeight / sheet.width;
-            baseScale = Math.min(scaleX, scaleY); // store base scale globally
-
-            const effectiveScale = baseScale * userZoom;
-            // Allow growth beyond original max; remove any max limitations
-            board.style.maxWidth = 'none';
-            board.style.maxHeight = 'none';
-            // Ensure no residual CSS minimums block shrinking at low zoom factors
-            board.style.minWidth = '0px';
-            board.style.minHeight = '0px';
-            board.style.width = (sheet.length * effectiveScale) + 'px';
-            board.style.height = (sheet.width * effectiveScale) + 'px';
-        }
-
-        function toggleOption(element) {
-            element.classList.toggle('active');
-        }
-
-        // Bin packing algorithm (Bottom-Left Fit)
-        function optimizeCutting() {
-            const board = document.getElementById('cuttingBoard');
-            const sheet = stockSheets[0];
-            // Ensure base scale & board size up to date
-            updateCuttingBoard();
-            const scale = baseScale * userZoom;
-            
-            const kerf = parseFloat(document.getElementById('kerfThickness').value) || 0.25;
-
-            // Clear existing pieces
-            board.innerHTML = '';
-            placedPieces = [];
-
-            // Create all required pieces
-            const allPieces = [];
-            panels.forEach((panel, panelIndex) => {
-                for (let i = 0; i < panel.qty; i++) {
-                    allPieces.push({
-                        length: panel.length,
-                        width: panel.width,
-                        panelIndex,
-                        label: panel.label || '',
-                        id: `piece_${panelIndex}_${i}`
-                    });
-                }
-            });
-
-            // Sort pieces by area (largest first)
-            allPieces.sort((a, b) => (b.length * b.width) - (a.length * a.width));
-
-            // Place pieces using bottom-left fit
-            const placedRects = [];
-            allPieces.forEach(piece => {
-                const position = findBestPosition(piece, placedRects, sheet, kerf);
-                if (position) {
-                    const rect = {
-                        x: position.x,
-                        y: position.y,
-                        length: piece.length,
-                        width: piece.width,
-                        piece
-                    };
-                    placedRects.push(rect);
-                    createPieceElement(rect, scale, board);
-                }
-            });
-
-            updateStats(placedRects, sheet);
-            // Save after optimization so latest derived results stored (panels, stock changes, kerf). Layout itself not persisted.
-            saveState();
-        }
-
-        function findBestPosition(piece, placedRects, sheet, kerf) {
-            // Try to place piece at various positions
-            const positions = [];
-            
-            // Add corner position
-            positions.push({ x: 0, y: 0 });
-            
-            // Add positions based on existing rectangles
-            placedRects.forEach(rect => {
-                positions.push({ x: rect.x + rect.length + kerf, y: rect.y });
-                positions.push({ x: rect.x, y: rect.y + rect.width + kerf });
-                positions.push({ x: rect.x + rect.length + kerf, y: rect.y + rect.width + kerf });
-            });
-
-            // Sort by bottom-left preference
-            positions.sort((a, b) => {
-                if (a.y !== b.y) return a.y - b.y;
-                return a.x - b.x;
-            });
-
-            // Try each position
-            for (const pos of positions) {
-                if (canPlacePiece(piece, pos.x, pos.y, placedRects, sheet, kerf)) {
-                    return pos;
-                }
-                
-                // Try rotated version
-                const rotated = { length: piece.width, width: piece.length };
-                if (canPlacePiece(rotated, pos.x, pos.y, placedRects, sheet, kerf)) {
-                    piece.length = rotated.length;
-                    piece.width = rotated.width;
-                    return pos;
-                }
-            }
-            
-            return null;
-        }
-
-        function canPlacePiece(piece, x, y, placedRects, sheet, kerf) {
-            // Check if piece fits within sheet bounds
-            if (x + piece.length > sheet.length || y + piece.width > sheet.width) {
-                return false;
-            }
-
-            // Check for overlap with existing pieces
-            for (const rect of placedRects) {
-                if (!(x >= rect.x + rect.length + kerf || 
-                      x + piece.length + kerf <= rect.x ||
-                      y >= rect.y + rect.width + kerf || 
-                      y + piece.width + kerf <= rect.y)) {
-                    return false;
-                }
-            }
-            
-            return true;
-        }
-
-        function createPieceElement(rect, scale, container) {
-            const element = document.createElement('div');
-            element.className = 'cut-piece';
-            element.id = rect.piece.id;
-            element.style.left = (rect.x * scale) + 'px';
-            element.style.top = (rect.y * scale) + 'px';
-            element.style.width = (rect.length * scale) + 'px';
-            element.style.height = (rect.width * scale) + 'px';
-            // Store real-world (inch) dimensions & position for zoom recompute
-            element.dataset.xInches = rect.x;
-            element.dataset.yInches = rect.y;
-            element.dataset.length = rect.length;
-            element.dataset.width = rect.width;
-            
-            element.innerHTML = `
-                <div class="dimensions">${rect.length} × ${rect.width}</div>
-                <div class="label">${rect.piece.label ? escapeHtml(rect.piece.label) : 'Panel ' + (rect.piece.panelIndex + 1)}</div>
-            `;
-
-            // Add drag functionality
-            element.draggable = true;
-            element.addEventListener('dragstart', handleDragStart);
-            element.addEventListener('dragend', handleDragEnd);
-
-            container.appendChild(element);
-        }
-
-        function handleDragStart(e) {
-            draggedElement = e.target;
-            e.target.classList.add('dragging');
-            
-            // Calculate offset relative to the element's current position
-            const elementRect = e.target.getBoundingClientRect();
-            dragOffset.x = e.clientX - elementRect.left;
-            dragOffset.y = e.clientY - elementRect.top;
-        }
-
-        function handleDragEnd(e) {
-            if (draggedElement) {
-                draggedElement.classList.remove('dragging');
-                // After manual reposition, persist new inch-based coordinates for zoom recalculation
-                const scale = baseScale * userZoom;
-                const newXpx = parseFloat(draggedElement.style.left) || 0;
-                const newYpx = parseFloat(draggedElement.style.top) || 0;
-                draggedElement.dataset.xInches = (newXpx / scale).toFixed(4);
-                draggedElement.dataset.yInches = (newYpx / scale).toFixed(4);
-                draggedElement = null;
-            }
-        }
-
-        // Allow dropping on the cutting board
-        document.getElementById('cuttingBoard').addEventListener('dragover', e => {
-            e.preventDefault();
-            if (e.currentTarget === document.getElementById('cuttingBoard')) {
-                e.currentTarget.classList.add('dragging-over');
-            }
-        });
-
-        document.getElementById('cuttingBoard').addEventListener('dragleave', e => {
-            if (e.currentTarget === document.getElementById('cuttingBoard')) {
-                e.currentTarget.classList.remove('dragging-over');
-            }
-        });
-
-        document.getElementById('cuttingBoard').addEventListener('drop', e => {
-            e.preventDefault();
-            const board = document.getElementById('cuttingBoard');
-            board.classList.remove('dragging-over');
-            
-            if (draggedElement) {
-                // Get the cutting board's position
-                const boardRect = board.getBoundingClientRect();
-                
-                // Calculate new position relative to the cutting board
-                const newX = e.clientX - boardRect.left - dragOffset.x;
-                const newY = e.clientY - boardRect.top - dragOffset.y;
-                
-                // Constrain to cutting board bounds
-                const maxX = board.clientWidth - draggedElement.offsetWidth;
-                const maxY = board.clientHeight - draggedElement.offsetHeight;
-                
-                const constrainedX = Math.max(0, Math.min(newX, maxX));
-                const constrainedY = Math.max(0, Math.min(newY, maxY));
-                
-                draggedElement.style.left = constrainedX + 'px';
-                draggedElement.style.top = constrainedY + 'px';
-            }
-        });
-
-        function escapeHtml(str) {
-            return str.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-        }
-
-        function updateRenderedPieceLabels() {
-            panels.forEach((p, panelIndex) => {
-                const labels = document.querySelectorAll(`.cut-piece[id^="piece_${panelIndex}_"] .label`);
-                labels.forEach(el => {
-                    el.textContent = p.label ? p.label : `Panel ${panelIndex + 1}`;
-                });
-            });
-        }
-
-        function updateStats(placedRects, sheet) {
-            const totalSheetArea = sheet.length * sheet.width;
-            const usedArea = placedRects.reduce((sum, rect) => sum + (rect.length * rect.width), 0);
-            const wastedArea = totalSheetArea - usedArea;
-            const efficiency = (usedArea / totalSheetArea * 100).toFixed(1);
-
-            document.getElementById('usedSheets').textContent = '1';
-            document.getElementById('totalUsed').textContent = `${usedArea.toFixed(2)} (${efficiency}%)`;
-            document.getElementById('totalWasted').textContent = `${wastedArea.toFixed(2)} (${(100-efficiency)}%)`;
-            document.getElementById('totalCuts').textContent = placedRects.length;
-        }
-
-        // Handle section collapsing
-        document.addEventListener('click', e => {
-            if (e.target.classList.contains('section-header')) {
-                e.target.parentElement.classList.toggle('collapsed');
-            }
-        });
-
-        // Handle Enter key for adding panels
-        document.addEventListener('keypress', e => {
-            if (e.key === 'Enter' && (e.target.id === 'newLength' || e.target.id === 'newWidth' || e.target.id === 'newQty' || e.target.id === 'newLabel')) {
-                addPanel();
-            }
-        });
-
-        // Persist kerf changes
-        document.getElementById('kerfThickness').addEventListener('change', () => {
-            saveState();
-        });
-
-        // Zoom controls events
-        document.getElementById('zoomSlider').addEventListener('input', (e) => {
-            userZoom = parseInt(e.target.value, 10) / 100;
-            updateZoom();
-            saveState();
-        });
-        document.getElementById('zoomResetBtn').addEventListener('click', () => {
-            userZoom = 1;
-            const slider = document.getElementById('zoomSlider');
-            slider.value = 100;
-            updateZoom();
-            saveState();
-        });
-
-        function updateZoom() {
-            // Update board size first
-            updateCuttingBoard();
-            const scale = baseScale * userZoom;
-            const board = document.getElementById('cuttingBoard');
-            // Resize & reposition each piece based on stored inch measurements
-            document.querySelectorAll('.cut-piece').forEach(el => {
-                const len = parseFloat(el.dataset.length);
-                const wid = parseFloat(el.dataset.width);
-                const xIn = parseFloat(el.dataset.xInches);
-                const yIn = parseFloat(el.dataset.yInches);
-                if (!isNaN(len) && !isNaN(wid) && !isNaN(xIn) && !isNaN(yIn)) {
-                    el.style.width = (len * scale) + 'px';
-                    el.style.height = (wid * scale) + 'px';
-                    el.style.left = (xIn * scale) + 'px';
-                    el.style.top = (yIn * scale) + 'px';
-                }
-            });
-            const pct = Math.round(userZoom * 100);
-            document.getElementById('zoomPercent').textContent = pct + '%';
-        }
+                    <div class="actions"><button class="btn btn-sm btn-danger" onclick="removePanel(${index})" title="Remove">✕</button></div>`; container.appendChild(div); }); }
+        function toSixteenthFraction(value) { if (isNaN(value)) return ''; const inches = Math.floor(value); const remainder = value - inches; let sixteenths = Math.round(remainder * 16); if (sixteenths === 16) { return (inches + 1).toString(); } if (sixteenths === 0) return inches.toString(); const gcd = (a,b)=> b ? gcd(b, a%b) : a; const g = gcd(sixteenths, 16); const num = sixteenths / g; const den = 16 / g; return inches > 0 ? `${inches} ${num}/${den}` : `${num}/${den}`; }
+        function updatePanel(index, field, value) { if (field === 'qty') { panels[index][field] = parseInt(value) || 1; } else if (field === 'label') { panels[index].label = (value || '').trim(); updateRenderedPieceLabels(); } else { panels[index][field] = parseFloat(value) || 0; updatePanelFractions(index); } saveState(); }
+        function updatePanelFractions(index) { const panel = panels[index]; if (!panel) return; const fracL = toSixteenthFraction(panel.length); const fracW = toSixteenthFraction(panel.width); const lCell = document.querySelector(`.fraction-cell[data-panel-index="${index}"][data-fraction-type="L"]`); const wCell = document.querySelector(`.fraction-cell[data-panel-index="${index}"][data-fraction-type="W"]`); if (lCell) lCell.textContent = fracL; if (wCell) wCell.textContent = fracW; }
+        function addStockSheet() { const length = parseFloat(document.getElementById('stockLength').value); const width = parseFloat(document.getElementById('stockWidth').value); if (length > 0 && width > 0) { stockSheets = [{ length, width }]; updateCuttingBoard(); updateStockDisplay(); document.getElementById('cuttingBoard').innerHTML=''; optimizeCutting(); saveState(); } }
+        function rotateStockSheet() { const lengthInput = document.getElementById('stockLength'); const widthInput = document.getElementById('stockWidth'); const currentLength = parseFloat(lengthInput.value); const currentWidth = parseFloat(widthInput.value); if (currentLength > 0 && currentWidth > 0) { lengthInput.value = currentWidth; widthInput.value = currentLength; stockSheets[0] = { length: currentWidth, width: currentLength }; updateCuttingBoard(); updateStockDisplay(); document.getElementById('cuttingBoard').innerHTML=''; optimizeCutting(); saveState(); } }
+        function updateStockDisplay() { const sheet = stockSheets[0]; document.getElementById('currentStockDisplay').textContent = `${sheet.length} × ${sheet.width}`; }
+        function updateCuttingBoard() { const board = document.getElementById('cuttingBoard'); const sheet = stockSheets[0]; const maxWidth = 700; const maxHeight = 500; const scaleX = maxWidth / sheet.length; const scaleY = maxHeight / sheet.width; baseScale = Math.min(scaleX, scaleY); const effectiveScale = baseScale * userZoom; board.style.maxWidth='none'; board.style.maxHeight='none'; board.style.minWidth='0px'; board.style.minHeight='0px'; board.style.width = (sheet.length * effectiveScale) + 'px'; board.style.height = (sheet.width * effectiveScale) + 'px'; }
+        function toggleOption(element) { element.classList.toggle('active'); }
+        function optimizeCutting() { const board = document.getElementById('cuttingBoard'); const sheet = stockSheets[0]; updateCuttingBoard(); const scale = baseScale * userZoom; const kerf = parseFloat(document.getElementById('kerfThickness').value) || 0.25; board.innerHTML=''; placedPieces = []; selectedPieceEl = null; const detailsContent = document.getElementById('panelDetailsContent'); if (detailsContent) detailsContent.textContent = 'Select a panel on the layout.'; const allPieces = []; panels.forEach((panel, panelIndex) => { for (let i=0;i<panel.qty;i++) { allPieces.push({ length: panel.length, width: panel.width, panelIndex, label: panel.label || '', id: `piece_${panelIndex}_${i}` }); } }); allPieces.sort((a,b)=> (b.length*b.width)-(a.length*a.width)); const placedRects = []; allPieces.forEach(piece => { const position = findBestPosition(piece, placedRects, sheet, kerf); if (position) { const rect = { x: position.x, y: position.y, length: piece.length, width: piece.width, piece }; placedRects.push(rect); createPieceElement(rect, scale, board); } }); updateStats(placedRects, sheet); saveState(); }
+        function findBestPosition(piece, placedRects, sheet, kerf) { const positions = []; positions.push({x:0,y:0}); placedRects.forEach(rect => { positions.push({ x: rect.x + rect.length + kerf, y: rect.y }); positions.push({ x: rect.x, y: rect.y + rect.width + kerf }); positions.push({ x: rect.x + rect.length + kerf, y: rect.y + rect.width + kerf }); }); positions.sort((a,b)=> a.y===b.y ? a.x-b.x : a.y-b.y); for (const pos of positions) { if (canPlacePiece(piece, pos.x, pos.y, placedRects, sheet, kerf)) { return pos; } const rotated = { length: piece.width, width: piece.length }; if (canPlacePiece(rotated, pos.x, pos.y, placedRects, sheet, kerf)) { piece.length = rotated.length; piece.width = rotated.width; return pos; } } return null; }
+        function canPlacePiece(piece, x, y, placedRects, sheet, kerf) { if (x + piece.length > sheet.length || y + piece.width > sheet.width) { return false; } for (const rect of placedRects) { if (!(x >= rect.x + rect.length + kerf || x + piece.length + kerf <= rect.x || y >= rect.y + rect.width + kerf || y + piece.width + kerf <= rect.y)) { return false; } } return true; }
+        function createPieceElement(rect, scale, container) { const element = document.createElement('div'); element.className='cut-piece'; element.id = rect.piece.id; element.style.left = (rect.x * scale) + 'px'; element.style.top = (rect.y * scale) + 'px'; element.style.width = (rect.length * scale) + 'px'; element.style.height = (rect.width * scale) + 'px'; element.dataset.xInches = rect.x; element.dataset.yInches = rect.y; element.dataset.length = rect.length; element.dataset.width = rect.width; element.innerHTML = `<div class="dimensions">${rect.length} × ${rect.width}</div><div class="label">${rect.piece.label ? escapeHtml(rect.piece.label) : 'Panel ' + (rect.piece.panelIndex + 1)}</div>`; element.draggable = true; element.addEventListener('dragstart', handleDragStart); element.addEventListener('dragend', handleDragEnd); element.addEventListener('click', ()=> selectPiece(element)); container.appendChild(element); }
+        function handleDragStart(e) { draggedElement = e.target; e.target.classList.add('dragging'); const elementRect = e.target.getBoundingClientRect(); dragOffset.x = e.clientX - elementRect.left; dragOffset.y = e.clientY - elementRect.top; }
+        function handleDragEnd(e) { if (draggedElement) { draggedElement.classList.remove('dragging'); const scale = baseScale * userZoom; const newXpx = parseFloat(draggedElement.style.left) || 0; const newYpx = parseFloat(draggedElement.style.top) || 0; draggedElement.dataset.xInches = (newXpx / scale).toFixed(4); draggedElement.dataset.yInches = (newYpx / scale).toFixed(4); if (selectedPieceEl === draggedElement) { updatePanelDetailsFromElement(draggedElement); } draggedElement = null; } }
+        document.getElementById('cuttingBoard').addEventListener('dragover', e => { e.preventDefault(); if (e.currentTarget === document.getElementById('cuttingBoard')) { e.currentTarget.classList.add('dragging-over'); } });
+        document.getElementById('cuttingBoard').addEventListener('dragleave', e => { if (e.currentTarget === document.getElementById('cuttingBoard')) { e.currentTarget.classList.remove('dragging-over'); } });
+        document.getElementById('cuttingBoard').addEventListener('drop', e => { e.preventDefault(); const board = document.getElementById('cuttingBoard'); board.classList.remove('dragging-over'); if (draggedElement) { const boardRect = board.getBoundingClientRect(); const newX = e.clientX - boardRect.left - dragOffset.x; const newY = e.clientY - boardRect.top - dragOffset.y; const maxX = board.clientWidth - draggedElement.offsetWidth; const maxY = board.clientHeight - draggedElement.offsetHeight; const constrainedX = Math.max(0, Math.min(newX, maxX)); const constrainedY = Math.max(0, Math.min(newY, maxY)); draggedElement.style.left = constrainedX + 'px'; draggedElement.style.top = constrainedY + 'px'; } });
+        function escapeHtml(str) { return str.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})); }
+        function updateRenderedPieceLabels() { panels.forEach((p, panelIndex) => { const labels = document.querySelectorAll(`.cut-piece[id^="piece_${panelIndex}_"] .label`); labels.forEach(el => { el.textContent = p.label ? p.label : `Panel ${panelIndex + 1}`; }); }); if (selectedPieceEl) updatePanelDetailsFromElement(selectedPieceEl); }
+        function updateStats(placedRects, sheet) { const totalSheetArea = sheet.length * sheet.width; const usedArea = placedRects.reduce((sum, rect) => sum + (rect.length * rect.width), 0); const wastedArea = totalSheetArea - usedArea; const efficiency = (usedArea / totalSheetArea * 100).toFixed(1); document.getElementById('usedSheets').textContent='1'; document.getElementById('totalUsed').textContent = `${usedArea.toFixed(2)} (${efficiency}%)`; document.getElementById('totalWasted').textContent = `${wastedArea.toFixed(2)} (${(100-efficiency)}%)`; document.getElementById('totalCuts').textContent = placedRects.length; }
+        document.addEventListener('click', e => { if (e.target.classList.contains('section-header')) { e.target.parentElement.classList.toggle('collapsed'); } });
+        document.addEventListener('keypress', e => { if (e.key === 'Enter' && (e.target.id === 'newLength' || e.target.id === 'newWidth' || e.target.id === 'newQty' || e.target.id === 'newLabel')) { addPanel(); } });
+        document.getElementById('kerfThickness').addEventListener('change', () => { saveState(); });
+        document.getElementById('zoomSlider').addEventListener('input', (e) => { userZoom = parseInt(e.target.value, 10) / 100; updateZoom(); saveState(); });
+        document.getElementById('zoomResetBtn').addEventListener('click', () => { userZoom = 1; const slider = document.getElementById('zoomSlider'); slider.value = 100; updateZoom(); saveState(); });
+        function updateZoom() { updateCuttingBoard(); const scale = baseScale * userZoom; document.querySelectorAll('.cut-piece').forEach(el => { const len = parseFloat(el.dataset.length); const wid = parseFloat(el.dataset.width); const xIn = parseFloat(el.dataset.xInches); const yIn = parseFloat(el.dataset.yInches); if (!isNaN(len) && !isNaN(wid) && !isNaN(xIn) && !isNaN(yIn)) { el.style.width = (len * scale) + 'px'; el.style.height = (wid * scale) + 'px'; el.style.left = (xIn * scale) + 'px'; el.style.top = (yIn * scale) + 'px'; } }); const pct = Math.round(userZoom * 100); document.getElementById('zoomPercent').textContent = pct + '%'; if (selectedPieceEl) updatePanelDetailsFromElement(selectedPieceEl); }
+        // Piece selection & details
+        function selectPiece(el) { if (selectedPieceEl === el) return; if (selectedPieceEl) selectedPieceEl.classList.remove('selected'); selectedPieceEl = el; el.classList.add('selected'); updatePanelDetailsFromElement(el); }
+        function updatePanelDetailsFromElement(el) { if (!el) return; const sheet = stockSheets[0]; const length = parseFloat(el.dataset.length) || 0; const width = parseFloat(el.dataset.width) || 0; const x = parseFloat(el.dataset.xInches) || 0; const y = parseFloat(el.dataset.yInches) || 0; const sheetLen = sheet.length; const sheetWid = sheet.width; const rightEdgeX = x + length; const bottomEdgeY = y + width; // Distances for vertical sides
+            const leftSide_toSheetLeft = x;
+            const leftSide_toSheetRight = sheetLen - x;
+            const rightSide_toSheetLeft = rightEdgeX;
+            const rightSide_toSheetRight = sheetLen - rightEdgeX;
+            // Distances for horizontal sides
+            const topSide_toSheetTop = y;
+            const topSide_toSheetBottom = sheetWid - y;
+            const bottomSide_toSheetTop = bottomEdgeY;
+            const bottomSide_toSheetBottom = sheetWid - bottomEdgeY;
+            const area = length * width; const labelEl = el.querySelector('.label'); const label = labelEl ? labelEl.textContent : ''; const details = document.getElementById('panelDetailsContent'); if (!details) return; const fmt = v => (isFinite(v) ? v.toFixed(2) : '—'); details.innerHTML = `<div style="margin-bottom:6px;font-weight:600;color:#333;">${escapeHtml(label)}</div>
+                <div style="display:grid;grid-template-columns:140px 1fr 1fr;row-gap:3px;column-gap:8px;align-items:center;">
+                    <div style='font-weight:600;'>Metric</div><div style='font-weight:600;'>Distance A</div><div style='font-weight:600;'>Distance B</div>
+                    <div>Length</div><div colspan='2' style='grid-column: span 2;'>${fmt(length)}</div>
+                    <div>Width</div><div colspan='2' style='grid-column: span 2;'>${fmt(width)}</div>
+                    <div>Area</div><div colspan='2' style='grid-column: span 2;'>${fmt(area)}</div>
+                    <div>Left → Left / Right</div><div>${fmt(leftSide_toSheetLeft)}</div><div>${fmt(leftSide_toSheetRight)}</div>
+                    <div>Right → Left / Right</div><div>${fmt(rightSide_toSheetLeft)}</div><div>${fmt(rightSide_toSheetRight)}</div>
+                    <div>Top → Top / Bottom</div><div>${fmt(topSide_toSheetTop)}</div><div>${fmt(topSide_toSheetBottom)}</div>
+                    <div>Bottom → Top / Bottom</div><div>${fmt(bottomSide_toSheetTop)}</div><div>${fmt(bottomSide_toSheetBottom)}</div>
+                </div>`; }
     </script>
 </body>
 </html>
