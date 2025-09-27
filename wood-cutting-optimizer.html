@@ -596,8 +596,8 @@
                 div.innerHTML = `
                     <input type="number" value="${panel.length}" onchange="updatePanel(${index}, 'length', this.value)" step="0.01" title="Decimal length">
                     <input type="number" value="${panel.width}" onchange="updatePanel(${index}, 'width', this.value)" step="0.01" title="Decimal width">
-                    <div class="fraction-cell" title="Nearest 1/16\"">${fracL}</div>
-                    <div class="fraction-cell" title="Nearest 1/16\"">${fracW}</div>
+                    <div class="fraction-cell" data-panel-index="${index}" data-fraction-type="L" title="Nearest 1/16\"">${fracL}</div>
+                    <div class="fraction-cell" data-panel-index="${index}" data-fraction-type="W" title="Nearest 1/16\"">${fracW}</div>
                     <input type="number" value="${panel.qty}" onchange="updatePanel(${index}, 'qty', this.value)" min="1" class="qty">
                     <div class="actions">
                         <button class="btn btn-sm btn-success" title="Keep">✓</button>
@@ -632,8 +632,22 @@
                 panels[index][field] = parseInt(value) || 1;
             } else {
                 panels[index][field] = parseFloat(value) || 0;
+                // Update fraction display live when length/width change
+                updatePanelFractions(index);
             }
             saveState();
+        }
+
+        // Refresh the fraction L/W cells for a specific panel row without re-rendering the entire list
+        function updatePanelFractions(index) {
+            const panel = panels[index];
+            if (!panel) return;
+            const fracL = toSixteenthFraction(panel.length);
+            const fracW = toSixteenthFraction(panel.width);
+            const lCell = document.querySelector(`.fraction-cell[data-panel-index="${index}"][data-fraction-type="L"]`);
+            const wCell = document.querySelector(`.fraction-cell[data-panel-index="${index}"][data-fraction-type="W"]`);
+            if (lCell) lCell.textContent = fracL;
+            if (wCell) wCell.textContent = fracW;
         }
 
         function addStockSheet() {
