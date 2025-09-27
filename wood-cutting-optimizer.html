@@ -41,12 +41,13 @@
         .toggle.active::after { left: 22px; }
         .main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         .canvas-container { flex: 1; position: relative; overflow: auto; background: white; padding: 20px; }
-        .cutting-board { border: 2px solid #333; background: #f8f9fa; position: relative; margin: 20px; min-width: 0; min-height: 0; }
-        .cut-piece { position: absolute; border: 1px solid #666; background: rgba(255, 255, 255, 0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 11px; font-weight: 500; cursor: move; user-select: none; }
+    .cutting-board { border: 2px solid #333; background: #f8f9fa; position: relative; margin: 20px; min-width: 0; min-height: 0; box-sizing: content-box; overflow: hidden; }
+    /* Ensure all pieces have a consistent non-selected border and prevent visual overflow */
+    .cut-piece { position: absolute; border: 1px solid #555; background: rgba(255, 255, 255, 0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; font-size: 11px; font-weight: 500; cursor: move; user-select: none; box-sizing: border-box; }
         .cut-piece:nth-child(odd) { background: rgba(220, 230, 255, 0.7); }
         .cut-piece:nth-child(even) { background: rgba(255, 220, 220, 0.7); }
-        /* Selected piece highlight */
-        .cut-piece.selected { outline: 2px solid #ff9800; outline-offset: -2px; box-shadow: 0 0 0 2px rgba(255,152,0,0.4); }
+    /* Selected piece highlight: keep dimensions identical by avoiding outline-offset */
+    .cut-piece.selected { border-color: #ff9800; box-shadow: 0 0 0 2px rgba(255,152,0,0.35); }
         .cut-piece.dragging { opacity: 0.5; z-index: 1000; }
         .cut-piece .dimensions { font-weight: bold; margin-bottom: 2px; }
         .cut-piece .label { font-size: 10px; color: #666; }
@@ -92,6 +93,26 @@
                         <input type="text" id="newLabel" placeholder="Label" title="Optional label shown on layout">
                         <input type="number" id="newQty" placeholder="1" min="1">
                         <button class="btn" onclick="addPanel()">Add Panel</button>
+                    </div>
+                    <!-- Import Panels Toggle & Container -->
+                    <div style="margin-top:8px;">
+                        <button class="btn btn-sm" onclick="toggleImportPanel()" title="Paste structured text to add multiple panels">Import / Paste Panels</button>
+                        <div id="panelImportContainer" style="display:none; margin-top:8px; border:1px solid #ddd; padding:8px; background:#fafafa; border-radius:4px;">
+                            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px; font-size:11px;">
+                                <label for="panelImportFormat" style="font-weight:600;">Format:</label>
+                                <select id="panelImportFormat" style="font-size:11px; padding:2px 4px;">
+                                    <option value="subbox">SubBox</option>
+                                </select>
+                                <button class="btn btn-sm" onclick="parsePanelImport()" title="Parse the pasted data">Parse</button>
+                                <button class="btn btn-sm btn-success" id="applyImportedBtn" onclick="applyImportedPanels()" disabled title="Add parsed panels to the current list">Add Parsed Panels</button>
+                                <button class="btn btn-sm btn-danger" onclick="toggleImportPanel(true)" title="Close importer">Close</button>
+                            </div>
+                            <textarea id="panelImportInput" style="width:100%; height:110px; font-size:11px; font-family:Consolas, monospace; resize:vertical; padding:4px; border:1px solid #ccc;" placeholder="Paste SubBox data here...&#10;Detail\tSize\tQuantity&#10;Top / Bottom\t24.00&quot; × 15.43&quot;\t2&#10;Front\t20.81&quot; × 9.50&quot;\t1"></textarea>
+                            <div id="panelImportMessages" style="margin-top:6px; font-size:11px; color:#555; line-height:1.3;"></div>
+                            <div style="margin-top:6px; font-size:10px; color:#777;">
+                                Expected SubBox format: Detail<TAB>Size<TAB>Quantity where Size is L × W in inches (quotes optional). Parsed panels are appended; existing list is preserved.
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -237,6 +258,117 @@
                     <div>Top → Top / Bottom</div><div>${fmt(topSide_toSheetTop)}</div><div>${fmt(topSide_toSheetBottom)}</div>
                     <div>Bottom → Top / Bottom</div><div>${fmt(bottomSide_toSheetTop)}</div><div>${fmt(bottomSide_toSheetBottom)}</div>
                 </div>`; }
+        // ========= Panel Import Feature =========
+        let importedPanelsBuffer = [];
+        function toggleImportPanel(closeOnly) {
+            const container = document.getElementById('panelImportContainer');
+            if (!container) return;
+            if (closeOnly) { container.style.display='none'; return; }
+            container.style.display = container.style.display === 'none' ? 'block' : 'none';
+            if (container.style.display === 'block') {
+                document.getElementById('panelImportInput').focus();
+            } else {
+                clearImportState();
+            }
+        }
+        function clearImportState() {
+            importedPanelsBuffer = [];
+            const msg = document.getElementById('panelImportMessages');
+            if (msg) msg.innerHTML='';
+            const applyBtn = document.getElementById('applyImportedBtn');
+            if (applyBtn) applyBtn.disabled = true;
+        }
+        function parsePanelImport() {
+            const format = (document.getElementById('panelImportFormat')?.value || 'subbox').toLowerCase();
+            const raw = document.getElementById('panelImportInput').value.trim();
+            clearImportState();
+            if (!raw) { setImportMessage('Paste data first.', 'warn'); return; }
+            let parsed = [];
+            if (format === 'subbox') {
+                parsed = parseSubBoxFormat(raw);
+            } else {
+                setImportMessage('Unknown format selected.', 'error');
+                return;
+            }
+            if (!parsed.length) {
+                setImportMessage('No valid panel rows parsed.', 'error');
+                return;
+            }
+            importedPanelsBuffer = parsed;
+            setImportMessage(`Parsed ${parsed.length} panel${parsed.length!==1?'s':''}. Review then click "Add Parsed Panels".`, 'ok');
+            const applyBtn = document.getElementById('applyImportedBtn');
+            if (applyBtn) applyBtn.disabled = false;
+        }
+        function setImportMessage(text, type) {
+            const msg = document.getElementById('panelImportMessages');
+            if (!msg) return;
+            const colors = { ok: '#155724', warn: '#856404', error: '#721c24' };
+            const bgs = { ok: '#d4edda', warn: '#fff3cd', error: '#f8d7da' };
+            let clsColor = colors[type] || '#333';
+            let bg = bgs[type] || '#eee';
+            msg.style.background = bg;
+            msg.style.padding = '4px 6px';
+            msg.style.borderRadius = '3px';
+            msg.style.border = '1px solid rgba(0,0,0,0.08)';
+            msg.style.color = clsColor;
+            msg.textContent = text;
+        }
+        function parseSubBoxFormat(text) {
+            const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+            if (!lines.length) return [];
+            // Remove header if first line contains Size and Quantity
+            if (/\bSize\b/i.test(lines[0]) && /\bQuantity\b/i.test(lines[0])) {
+                lines.shift();
+            }
+            const results = [];
+            const sizeRegex = /([0-9]+(?:\.[0-9]+)?)\s*(?:"|in|inch|in\.)?\s*[×x]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:"|in|inch|in\.)?/i;
+            lines.forEach((line, idx) => {
+                const cols = line.split(/\t+/); // primary: tab separated
+                if (cols.length < 3) {
+                    // attempt to split by multiple spaces if tabs absent
+                    if (line.includes('×') || line.toLowerCase().includes('x')) {
+                        // Try to locate size pattern
+                        const m = sizeRegex.exec(line);
+                        if (m) {
+                            const qtyMatch = line.trim().match(/(\d+)\s*$/);
+                            const qty = qtyMatch ? parseInt(qtyMatch[1],10) : 1;
+                            const detail = line.slice(0, m.index).trim().replace(/\s{2,}/g,' ');
+                            const length = parseFloat(m[1]);
+                            const width = parseFloat(m[2]);
+                            if (isFinite(length) && isFinite(width) && qty>0) {
+                                results.push({ length, width, qty, label: detail });
+                            }
+                        }
+                    }
+                    return;
+                }
+                const detail = cols[0].trim();
+                const sizeStr = cols[1].trim();
+                const qtyStr = cols[2].trim();
+                const m = sizeRegex.exec(sizeStr);
+                if (!m) return;
+                const length = parseFloat(m[1]);
+                const width = parseFloat(m[2]);
+                let qty = parseInt(qtyStr,10);
+                if (!isFinite(qty) || qty <= 0) qty = 1;
+                if (isFinite(length) && isFinite(width) && length>0 && width>0) {
+                    results.push({ length, width, qty, label: detail });
+                }
+            });
+            return results;
+        }
+        function applyImportedPanels() {
+            if (!importedPanelsBuffer.length) { setImportMessage('Nothing to add. Parse first.', 'warn'); return; }
+            importedPanelsBuffer.forEach(p => panels.push(p));
+            renderPanels();
+            optimizeCutting();
+            saveState();
+            setImportMessage(`Added ${importedPanelsBuffer.length} panel${importedPanelsBuffer.length!==1?'s':''}.`, 'ok');
+            importedPanelsBuffer = [];
+            const applyBtn = document.getElementById('applyImportedBtn');
+            if (applyBtn) applyBtn.disabled = true;
+        }
+        // =========================================
     </script>
 </body>
 </html>
