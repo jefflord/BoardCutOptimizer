@@ -33,7 +33,7 @@
         .stock-sheet-input { display: grid; grid-template-columns: 70px 70px 50px 1fr 58px; gap: 6px; margin-bottom: 8px; justify-content: start; align-items: center; font-size:11px; }
         .stock-sheet-input input { padding: 4px; border: 1px solid #ddd; border-radius: 2px; font-size: 12px; width: 100%; }
         #stockSheetsList { max-height:170px; overflow-y:auto; margin-top:4px; }
-        .stock-sheet-row { display:grid; grid-template-columns: 60px 60px 40px 1fr 60px 60px; gap:6px; padding:4px 0; align-items:center; font-size:11px; border-bottom:1px solid #f0f0f0; }
+    .stock-sheet-row { display:grid; grid-template-columns: 60px 60px 40px 1fr 60px 60px 60px; gap:6px; padding:4px 0; align-items:center; font-size:11px; border-bottom:1px solid #f0f0f0; }
         .stock-sheet-row:last-child { border-bottom:none; }
         .stock-sheet-row input { width:100%; padding:2px 4px; font-size:11px; }
         .sheet-actions { display:flex; gap:4px; }
@@ -133,14 +133,14 @@
             <div class="section-header">📦 Stock Sheets</div>
             <div class="section-content">
                 <div style="font-size:11px; color:#555; margin-bottom:6px; line-height:1.3;">Add multiple sheet types with quantities. Order determines usage (arrows). Pieces spill to later sheets automatically.</div>
-                <div class="stock-sheet-input">
+                <div id="stockSheetsList"></div>
+                <div class="stock-sheet-input" style="margin-top:8px;">
                     <input type="number" id="stockLength" placeholder="L" value="96" step="0.01" title="Sheet length">
                     <input type="number" id="stockWidth" placeholder="W" value="48" step="0.01" title="Sheet width">
                     <input type="number" id="stockQty" placeholder="Qty" value="1" min="1" step="1" title="Quantity">
                     <input type="text" id="stockLabel" placeholder="Label" title="Optional label used for display">
                     <button class="btn btn-sm" onclick="addStockSheetDefinition()" title="Add sheet definition">Add</button>
                 </div>
-                <div id="stockSheetsList"></div>
             </div>
         </div>
         <div class="section">
@@ -255,8 +255,10 @@
                     <button class="btn btn-sm" title="Move down" onclick="moveStockSheet(${index},1)" ${index===stockSheets.length-1?'disabled':''}>↓</button>
                 </div>
                 <div class="sheet-actions">
+                    <button class="btn btn-sm" title="Swap length & width" onclick="swapStockSheet(${index})">⟳</button>
                     <button class="btn btn-sm btn-danger" title="Remove" onclick="removeStockSheet(${index})">✕</button>
                 </div>`; list.appendChild(row); }); }
+        function swapStockSheet(index) { const s = stockSheets[index]; if (!s) return; const tmp = s.length; s.length = s.width; s.width = tmp; renderStockSheets(); optimizeCutting(); saveState(); }
         function updateStockSheet(index, field, value) { if (!stockSheets[index]) return; if (field==='qty') { stockSheets[index].qty = Math.max(1, parseInt(value,10)||1); } else if (field==='label') { stockSheets[index].label = (value||'').trim(); } else { stockSheets[index][field] = parseFloat(value)||0; } saveState(); optimizeCutting(); }
         function moveStockSheet(index, dir) { const newIndex = index + dir; if (newIndex<0 || newIndex>=stockSheets.length) return; const [it] = stockSheets.splice(index,1); stockSheets.splice(newIndex,0,it); renderStockSheets(); optimizeCutting(); saveState(); }
         function removeStockSheet(index) { stockSheets.splice(index,1); renderStockSheets(); optimizeCutting(); saveState(); }
