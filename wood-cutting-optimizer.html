@@ -69,6 +69,10 @@
         .stats-panels .stats-panel { position: static; top: auto; right: auto; }
         .stats-panel h4 { margin-bottom: 8px; color: #495057; font-size: 13px; }
         .stat-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .sheet-board.selected { box-shadow: 0 0 0 3px rgba(255,152,0,0.55); border-color:#ff9800; }
+    #sheetDetailsContent small { color:#666; font-size:10px; }
+    #sheetPanelList { max-height:120px; overflow-y:auto; margin-top:4px; font-size:10px; line-height:1.3; }
+    .sheet-metric-grid { display:grid; grid-template-columns: 120px 1fr; row-gap:3px; column-gap:8px; font-size:11px; }
         .optimize-btn { position: absolute; bottom: 20px; right: 20px; background: #28a745; color: white; border: none; padding: 12px 24px; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .optimize-btn:hover { background: #218838; }
         .waste-area { background: rgba(255, 0, 0, 0.1) !important; border: 1px dashed #ff0000 !important; }
@@ -175,6 +179,16 @@
                     <h4>Panel Details</h4>
                     <div id="panelDetailsContent" style="font-size:11px; color:#666;">Select a panel on the layout.</div>
                 </div>
+                <div class="stats-panel" id="sheetDetailsPanel">
+                    <h4>Sheet Details</h4>
+                    <div id="sheetDetailsContent" style="font-size:11px; color:#666;">Select a sheet to view details.</div>
+                    <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                        <button class="btn btn-sm" id="exportSheetBtn" disabled title="Select a sheet first">Export PNG</button>
+                        <label style="font-size:10px; display:flex; align-items:center; gap:4px;">Res (px/in)
+                            <input type="number" id="exportScaleInput" value="12" min="2" max="40" step="1" style="width:56px; padding:2px 4px; font-size:10px;" title="Pixels per inch used for export image resolution">
+                        </label>
+                    </div>
+                </div>
             </div>
             <button class="optimize-btn" onclick="optimizeCutting()">Optimize Layout</button>
         </div>
@@ -185,7 +199,8 @@
         // Stock sheet definitions (each with qty, label). Expanded instances built per optimize run.
         let stockSheets = [{ length: 96, width: 48, qty: 1, label: '' }];
         let expandedSheets = [];
-        let placedPieces = [];
+    let placedPieces = [];// legacy (unused for new sheet stats)
+    let placedRectsGlobal = []; // holds rects across all sheets after optimize
         let draggedElement = null;
         let dragOffset = { x: 0, y: 0 };
         let isResizingSidebar = false;
@@ -194,6 +209,7 @@
         let userZoom = 1;
         // Selected piece element
         let selectedPieceEl = null;
+    let selectedSheetIndex = null;
         const STORAGE_KEY = 'woodCuttingOptimizerState_v1';
 
         function getKerfValue() {
@@ -202,7 +218,8 @@
         }
         function saveState() {
             try {
-                const state = { version: 3, panels: panels.map(p => ({ length:+p.length, width:+p.width, qty:+p.qty, label:p.label||'' })), stockSheets: stockSheets.map(s => ({ length:+s.length, width:+s.width, qty:+s.qty, label:s.label||'' })), kerf: getKerfValue(), zoom: userZoom, showFractions: showFractionsEnabled() };
+                const exportScaleVal = parseInt(document.getElementById('exportScaleInput')?.value,10)||12;
+                const state = { version: 4, panels: panels.map(p => ({ length:+p.length, width:+p.width, qty:+p.qty, label:p.label||'' })), stockSheets: stockSheets.map(s => ({ length:+s.length, width:+s.width, qty:+s.qty, label:s.label||'' })), kerf: getKerfValue(), zoom: userZoom, showFractions: showFractionsEnabled(), exportScale: exportScaleVal };
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
             } catch (e) { console.warn('Failed to save state', e); }
         }
@@ -221,6 +238,7 @@
                 if (state.kerf !== undefined) { document.getElementById('kerfThickness').value = +state.kerf; }
                 if (state.zoom && typeof state.zoom === 'number') { userZoom = state.zoom; const slider = document.getElementById('zoomSlider'); if (slider) slider.value = Math.round(userZoom * 100); }
                 if (typeof state.showFractions === 'boolean') { const cb = document.getElementById('showFractionsDiagram'); if (cb) cb.checked = !!state.showFractions; }
+                if (state.exportScale) { const esi = document.getElementById('exportScaleInput'); if (esi) esi.value = state.exportScale; }
                 return true;
             } catch (e) { console.warn('Failed to load saved state', e); return false; }
         }
@@ -279,7 +297,10 @@
             const kerf = getKerfValue();
             container.innerHTML='';
             placedPieces = [];
+            placedRectsGlobal = [];
             selectedPieceEl = null;
+            // reset sheet selection visual but keep index to attempt restore later
+            clearSheetSelections();
             const detailsContent = document.getElementById('panelDetailsContent');
             if (detailsContent) detailsContent.textContent = 'Select a panel on the layout.';
             // Create boards
@@ -291,6 +312,7 @@
                 board.style.height = (sheet.width * scale) + 'px';
                 board.innerHTML = `<div class="sheet-label">${escapeHtml(sheet.label)}</div>`;
                 attachBoardDragEvents(board);
+                board.addEventListener('click', (e)=> { if(e.target===board || e.target.classList.contains('sheet-label')) { selectSheet(sheetIndex); } });
                 container.appendChild(board);
             });
             // Build piece list
@@ -319,8 +341,12 @@
                 // If we reach here, piece did not fit any sheet
                 unplacedPieces.push(piece);
             });
+            placedRectsGlobal = placedRects.slice();
             updateStatsMulti(placedRects, expandedSheets);
             updateUnplacedUI(unplacedPieces);
+            if(selectedSheetIndex!=null && expandedSheets[selectedSheetIndex]) { // refresh details if selection persisted
+                selectSheet(selectedSheetIndex);
+            } else { selectedSheetIndex = null; updateSheetDetails(null); }
             saveState();
         }
         function updateUnplacedUI(unplacedPieces) {
@@ -350,18 +376,63 @@
     function showFractionsEnabled() { const cb = document.getElementById('showFractionsDiagram'); return cb && cb.checked; }
     function pieceDimensionsText(length, width) { if (showFractionsEnabled()) { return `${toSixteenthFraction(length)} × ${toSixteenthFraction(width)}`; } return `${length} × ${width}`; }
     function updatePieceDimensionDisplays() { document.querySelectorAll('.cut-piece').forEach(el => { const len = parseFloat(el.dataset.length); const wid = parseFloat(el.dataset.width); if (!isNaN(len) && !isNaN(wid)) { const dims = el.querySelector('.dimensions'); if (dims) dims.textContent = pieceDimensionsText(len, wid); } }); if (selectedPieceEl) updatePanelDetailsFromElement(selectedPieceEl); }
-        function attachBoardDragEvents(board){ board.addEventListener('dragover', e=>{ e.preventDefault(); board.classList.add('dragging-over'); }); board.addEventListener('dragleave', e=>{ if (e.currentTarget===board) board.classList.remove('dragging-over'); }); board.addEventListener('drop', e=>{ e.preventDefault(); board.classList.remove('dragging-over'); if (draggedElement){ const scale = baseScale * userZoom; const r = board.getBoundingClientRect(); const newX = e.clientX - r.left - dragOffset.x; const newY = e.clientY - r.top - dragOffset.y; const maxX = board.clientWidth - draggedElement.offsetWidth; const maxY = board.clientHeight - draggedElement.offsetHeight; const cx = Math.max(0, Math.min(newX, maxX)); const cy = Math.max(0, Math.min(newY, maxY)); draggedElement.style.left = cx + 'px'; draggedElement.style.top = cy + 'px'; draggedElement.dataset.sheetIndex = board.dataset.sheetIndex; draggedElement.dataset.xInches=(cx/scale).toFixed(4); draggedElement.dataset.yInches=(cy/scale).toFixed(4); if (selectedPieceEl===draggedElement) updatePanelDetailsFromElement(draggedElement); } }); }
+    function attachBoardDragEvents(board){ board.addEventListener('dragover', e=>{ e.preventDefault(); board.classList.add('dragging-over'); }); board.addEventListener('dragleave', e=>{ if (e.currentTarget===board) board.classList.remove('dragging-over'); }); board.addEventListener('drop', e=>{ e.preventDefault(); board.classList.remove('dragging-over'); if (draggedElement){ const scale = baseScale * userZoom; const r = board.getBoundingClientRect(); const newX = e.clientX - r.left - dragOffset.x; const newY = e.clientY - r.top - dragOffset.y; const maxX = board.clientWidth - draggedElement.offsetWidth; const maxY = board.clientHeight - draggedElement.offsetHeight; const cx = Math.max(0, Math.min(newX, maxX)); const cy = Math.max(0, Math.min(newY, maxY)); draggedElement.style.left = cx + 'px'; draggedElement.style.top = cy + 'px'; draggedElement.dataset.sheetIndex = board.dataset.sheetIndex; draggedElement.dataset.xInches=(cx/scale).toFixed(4); draggedElement.dataset.yInches=(cy/scale).toFixed(4); if (selectedPieceEl===draggedElement) updatePanelDetailsFromElement(draggedElement); syncRectFromElement(draggedElement); if(selectedSheetIndex!==null && parseInt(board.dataset.sheetIndex,10)===selectedSheetIndex) { updateSheetDetails(selectedSheetIndex); } } }); }
+    function syncRectFromElement(el){ if(!el) return; const id = el.id; const rect = placedRectsGlobal.find(r=> r.piece && r.piece.id === id); if(!rect) return; rect.x = parseFloat(el.dataset.xInches)||0; rect.y = parseFloat(el.dataset.yInches)||0; rect.sheetIndex = parseInt(el.dataset.sheetIndex,10) || 0; }
         function handleDragStart(e) { draggedElement = e.target; e.target.classList.add('dragging'); const elementRect = e.target.getBoundingClientRect(); dragOffset.x = e.clientX - elementRect.left; dragOffset.y = e.clientY - elementRect.top; }
-        function handleDragEnd(e) { if (draggedElement) { draggedElement.classList.remove('dragging'); const scale = baseScale * userZoom; const newXpx = parseFloat(draggedElement.style.left) || 0; const newYpx = parseFloat(draggedElement.style.top) || 0; draggedElement.dataset.xInches = (newXpx / scale).toFixed(4); draggedElement.dataset.yInches = (newYpx / scale).toFixed(4); if (selectedPieceEl === draggedElement) { updatePanelDetailsFromElement(draggedElement); } draggedElement = null; } }
+    function handleDragEnd(e) { if (draggedElement) { draggedElement.classList.remove('dragging'); const scale = baseScale * userZoom; const newXpx = parseFloat(draggedElement.style.left) || 0; const newYpx = parseFloat(draggedElement.style.top) || 0; draggedElement.dataset.xInches = (newXpx / scale).toFixed(4); draggedElement.dataset.yInches = (newYpx / scale).toFixed(4); syncRectFromElement(draggedElement); if (selectedPieceEl === draggedElement) { updatePanelDetailsFromElement(draggedElement); }
+        const sIdx = parseInt(draggedElement.dataset.sheetIndex,10); if(selectedSheetIndex===sIdx) { updateSheetDetails(selectedSheetIndex); }
+        draggedElement = null; } }
         function escapeHtml(str) { return str.replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})); }
         function updateRenderedPieceLabels() { panels.forEach((p, panelIndex) => { const labels = document.querySelectorAll(`.cut-piece[id^="piece_${panelIndex}_"] .label`); labels.forEach(el => { el.textContent = p.label ? p.label : `Panel ${panelIndex + 1}`; }); }); if (selectedPieceEl) updatePanelDetailsFromElement(selectedPieceEl); }
         function updateStatsMulti(placedRects, sheets) { const usedSheetsSet = new Set(placedRects.map(r=>r.sheetIndex)); const usedSheets = sheets.filter((_,idx)=>usedSheetsSet.has(idx)); const usedArea = placedRects.reduce((sum, rect) => sum + (rect.length * rect.width), 0); const totalAreaUsedSheets = usedSheets.reduce((sum,s)=> sum + s.length * s.width, 0); const wastedArea = totalAreaUsedSheets - usedArea; const efficiency = totalAreaUsedSheets>0 ? (usedArea/totalAreaUsedSheets*100).toFixed(1) : '0.0'; document.getElementById('usedSheets').textContent = usedSheets.length; document.getElementById('totalUsed').textContent = `${usedArea.toFixed(2)} (${efficiency}%)`; document.getElementById('totalWasted').textContent = `${wastedArea.toFixed(2)} (${totalAreaUsedSheets>0?(100-parseFloat(efficiency)).toFixed(1):'0.0'}%)`; document.getElementById('totalCuts').textContent = placedRects.length; }
+        // ===== Sheet selection & details =====
+        function clearSheetSelections() { document.querySelectorAll('.sheet-board.selected').forEach(b=>b.classList.remove('selected')); }
+        function selectSheet(sheetIndex) { if(sheetIndex==null || !expandedSheets[sheetIndex]) return; if(selectedSheetIndex===sheetIndex) return; clearSheetSelections(); const board = document.querySelector(`.sheet-board[data-sheet-index="${sheetIndex}"]`); if(board){ board.classList.add('selected'); } selectedSheetIndex = sheetIndex; updateSheetDetails(sheetIndex); }
+        function updateSheetDetails(sheetIndex) { const panel = document.getElementById('sheetDetailsContent'); const btn = document.getElementById('exportSheetBtn'); if(!panel) return; const sheet = expandedSheets[sheetIndex]; if(!sheet){ panel.textContent='Select a sheet to view details.'; if(btn) btn.disabled = true; return; } const rects = placedRectsGlobal.filter(r=>r.sheetIndex===sheetIndex); const areaSheet = sheet.length * sheet.width; const usedArea = rects.reduce((s,r)=> s + r.length * r.width, 0); const waste = areaSheet - usedArea; const efficiency = areaSheet>0 ? (usedArea/areaSheet*100).toFixed(1) : '0.0'; // piece list grouped by panel label
+            const counts = {}; rects.forEach(r=> { const label = r.piece.label || `Panel ${r.piece.panelIndex+1}`; counts[label] = (counts[label]||0)+1; }); const pieceListHtml = Object.keys(counts).sort().map(k=> `<div>${escapeHtml(k)}: ${counts[k]}</div>`).join('') || '<div><em>No pieces</em></div>'; panel.innerHTML = `<div style='font-weight:600;margin-bottom:4px;'>${escapeHtml(sheet.label||('Sheet '+(sheetIndex+1)))}</div>
+                <div class='sheet-metric-grid'>
+                    <div>Length</div><div>${sheet.length.toFixed(2)}</div>
+                    <div>Width</div><div>${sheet.width.toFixed(2)}</div>
+                    <div>Area</div><div>${areaSheet.toFixed(2)}</div>
+                    <div>Used Area</div><div>${usedArea.toFixed(2)} (${efficiency}%)</div>
+                    <div>Waste</div><div>${waste.toFixed(2)} (${(100-parseFloat(efficiency)).toFixed(1)}%)</div>
+                    <div>Pieces</div><div>${rects.length}</div>
+                </div>
+                <div style='margin-top:6px; font-weight:600;'>Pieces on Sheet</div>
+                <div id='sheetPanelList'>${pieceListHtml}</div>
+                <div style='margin-top:6px;'><small>Drag pieces to adjust; export captures current view (zoom ignored, real dimensions scaled graphically).</small></div>`; if(btn){ btn.disabled=false; btn.onclick = ()=> exportSheetAsPNG(sheetIndex); }
+        }
+        // ===== Export sheet to PNG (simple canvas drawing) =====
+        function exportSheetAsPNG(sheetIndex) { const sheet = expandedSheets[sheetIndex]; if(!sheet) return; const rects = placedRectsGlobal.filter(r=>r.sheetIndex===sheetIndex); const padding = 28; const userScale = Math.min(40, Math.max(2, parseInt(document.getElementById('exportScaleInput')?.value,10)||12)); const baseScale = userScale; const dpr = (window.devicePixelRatio||1); const scale = baseScale; // logical px per inch; we'll upscale canvas by DPR
+            const logicalWidth = Math.ceil(sheet.length * scale) + padding*2; const logicalHeight = Math.ceil(sheet.width * scale) + padding*2; const canvas = document.createElement('canvas'); canvas.width = logicalWidth * dpr; canvas.height = logicalHeight * dpr; canvas.style.width = logicalWidth + 'px'; canvas.style.height = logicalHeight + 'px'; const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+            // background & board
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,logicalWidth,logicalHeight);
+            // subtle shadow
+            ctx.save(); ctx.shadowColor='rgba(0,0,0,0.15)'; ctx.shadowBlur=6; ctx.shadowOffsetX=2; ctx.shadowOffsetY=2; ctx.fillStyle='#f8f9fa'; ctx.fillRect(padding, padding, sheet.length*scale, sheet.width*scale); ctx.restore();
+            ctx.strokeStyle = '#333'; ctx.lineWidth = 2; ctx.strokeRect(padding, padding, sheet.length*scale, sheet.width*scale);
+            ctx.font = '14px Segoe UI, Arial'; ctx.fillStyle='#222'; ctx.textBaseline='top'; ctx.fillText(sheet.label || ('Sheet '+(sheetIndex+1)), padding+6, padding+6);
+            // pieces
+            rects.forEach((r,i)=> { const x = padding + r.x * scale; const y = padding + r.y * scale; const w = r.length * scale; const h = r.width * scale; const grad = ctx.createLinearGradient(x,y,x+w,y+h); if(i%2===0) { grad.addColorStop(0,'#dfe9ff'); grad.addColorStop(1,'#c2d6ff'); } else { grad.addColorStop(0,'#ffe1e1'); grad.addColorStop(1,'#ffc9c9'); } ctx.fillStyle = grad; ctx.strokeStyle = '#555'; ctx.lineWidth=1; ctx.fillRect(x,y,w,h); ctx.strokeRect(x,y,w,h); // text
+                if (w < 14 || h < 14) return; // too small to render text legibly
+                ctx.save(); ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip(); ctx.fillStyle='#111'; ctx.font = '12px Segoe UI, Arial'; const dims = pieceDimensionsText(r.length, r.width); const label = r.piece.label || ('Panel '+(r.piece.panelIndex+1)); const lines = [label, dims]; const lineHeight = 14; let totalH = lines.length * lineHeight; if (totalH > h - 4) { // drop to single line dims only
+                    lines.splice(0,1); totalH = lines.length * lineHeight; }
+                let ty = y + (h - totalH)/2; lines.forEach(ln=> { let fontSize = 12; ctx.font = fontSize+'px Segoe UI, Arial'; while(ctx.measureText(ln).width > w - 6 && fontSize > 7) { fontSize -= 1; ctx.font = fontSize+'px Segoe UI, Arial'; }
+                    const tw = ctx.measureText(ln).width; ctx.fillText(ln, x + (w - tw)/2, ty); ty += lineHeight; }); ctx.restore(); });
+            // metrics footer
+            const areaSheet = sheet.length*sheet.width; const used = rects.reduce((s,r)=>s + r.length*r.width,0); const eff = areaSheet? (used/areaSheet*100).toFixed(1):'0.0'; ctx.fillStyle='#444'; ctx.font='11px Segoe UI, Arial'; const dateStr = new Date().toLocaleString(); const footer = `Area ${areaSheet.toFixed(2)}  Used ${used.toFixed(2)} (${eff}%)  Generated ${dateStr}`; ctx.textBaseline='alphabetic'; ctx.fillText(footer, padding, logicalHeight - 10);
+            canvas.toBlob(blob => { if(!blob) return; const a = document.createElement('a'); const safeLabel = (sheet.label||('Sheet_'+(sheetIndex+1))).replace(/[^a-z0-9_-]+/gi,'_'); a.download = `${safeLabel}_${userScale}px-in.png`; a.href = URL.createObjectURL(blob); document.body.appendChild(a); a.click(); setTimeout(()=> { URL.revokeObjectURL(a.href); a.remove(); }, 600); }, 'image/png'); }
         document.addEventListener('click', e => { if (e.target.classList.contains('section-header')) { e.target.parentElement.classList.toggle('collapsed'); } });
         document.addEventListener('keypress', e => { if (e.key === 'Enter' && (e.target.id === 'newLength' || e.target.id === 'newWidth' || e.target.id === 'newQty' || e.target.id === 'newLabel')) { addPanel(); } });
+        // Deselect sheet when clicking empty space in canvas container
+        document.querySelector('.canvas-container').addEventListener('click', (e)=> {
+            const board = e.target.closest('.sheet-board');
+            if(!board) { selectedSheetIndex = null; clearSheetSelections(); updateSheetDetails(null); }
+        });
     document.getElementById('kerfThickness').addEventListener('change', () => { saveState(); optimizeCutting(); });
     const showFracEl = document.getElementById('showFractionsDiagram'); if (showFracEl) { showFracEl.addEventListener('change', () => { saveState(); updatePieceDimensionDisplays(); }); }
         document.getElementById('zoomSlider').addEventListener('input', (e) => { userZoom = parseInt(e.target.value, 10) / 100; updateZoom(); saveState(); });
         document.getElementById('zoomResetBtn').addEventListener('click', () => { userZoom = 1; const slider = document.getElementById('zoomSlider'); slider.value = 100; updateZoom(); saveState(); });
+    const exportScaleInput = document.getElementById('exportScaleInput'); if (exportScaleInput) { exportScaleInput.addEventListener('change', ()=> { saveState(); }); }
         function updateZoom() { updateCuttingBoardsSizing(); const scale = baseScale * userZoom; document.querySelectorAll('.cut-piece').forEach(el => { const len = parseFloat(el.dataset.length); const wid = parseFloat(el.dataset.width); const xIn = parseFloat(el.dataset.xInches); const yIn = parseFloat(el.dataset.yInches); if (!isNaN(len) && !isNaN(wid) && !isNaN(xIn) && !isNaN(yIn)) { el.style.width = (len * scale) + 'px'; el.style.height = (wid * scale) + 'px'; el.style.left = (xIn * scale) + 'px'; el.style.top = (yIn * scale) + 'px'; } }); const pct = Math.round(userZoom*100); document.getElementById('zoomPercent').textContent = pct + '%'; if (selectedPieceEl) updatePanelDetailsFromElement(selectedPieceEl); }
         function selectPiece(el) { if (selectedPieceEl === el) return; if (selectedPieceEl) selectedPieceEl.classList.remove('selected'); selectedPieceEl = el; el.classList.add('selected'); updatePanelDetailsFromElement(el); }
         function updatePanelDetailsFromElement(el) { if (!el) return; const sheetIndex = parseInt(el.dataset.sheetIndex,10); const sheet = expandedSheets[sheetIndex] || {length:0,width:0,label:'?'}; const length = parseFloat(el.dataset.length) || 0; const width = parseFloat(el.dataset.width) || 0; const x = parseFloat(el.dataset.xInches) || 0; const y = parseFloat(el.dataset.yInches) || 0; const sheetLen = sheet.length; const sheetWid = sheet.width; const rightEdgeX = x + length; const bottomEdgeY = y + width; const leftSide_toSheetLeft = x; const leftSide_toSheetRight = sheetLen - x; const rightSide_toSheetLeft = rightEdgeX; const rightSide_toSheetRight = sheetLen - rightEdgeX; const topSide_toSheetTop = y; const topSide_toSheetBottom = sheetWid - y; const bottomSide_toSheetTop = bottomEdgeY; const bottomSide_toSheetBottom = sheetWid - bottomEdgeY; const area = length * width; const labelEl = el.querySelector('.label'); const label = labelEl ? labelEl.textContent : ''; const details = document.getElementById('panelDetailsContent'); if (!details) return; const fmt = v => (isFinite(v) ? v.toFixed(2) : '—'); details.innerHTML = `<div style="margin-bottom:6px;font-weight:600;color:#333;">${escapeHtml(label)}</div>
