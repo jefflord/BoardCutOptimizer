@@ -20,39 +20,12 @@
         }
 
         .sidebar {
-            /* Initial width; will be overridden inline when user resizes */
             width: 320px;
             background: white;
             border-right: 1px solid #ddd;
             display: flex;
             flex-direction: column;
             overflow-y: auto;
-            position: relative;
-            flex: 0 0 auto; /* Prevent flex from shrinking when width set */
-            min-width: 240px;
-            max-width: 640px;
-        }
-
-        .sidebar.resizing {
-            user-select: none;
-            cursor: col-resize;
-        }
-
-        .sidebar-resizer {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 6px;
-            height: 100%;
-            cursor: col-resize;
-            background: linear-gradient(to right, rgba(0,0,0,0) 0%, rgba(0,123,255,0.15) 100%);
-            opacity: 0;
-            transition: opacity 0.15s;
-        }
-
-        .sidebar:hover .sidebar-resizer,
-        .sidebar.resizing .sidebar-resizer {
-            opacity: 1;
         }
 
         .section {
@@ -97,8 +70,7 @@
 
         .panel-item {
             display: grid;
-            /* Length | Width | Fraction L | Fraction W | Qty | Actions */
-            grid-template-columns: 60px 50px 70px 70px 40px 1fr;
+            grid-template-columns: 60px 50px 40px 30px 30px;
             gap: 8px;
             padding: 4px 0;
             align-items: center;
@@ -164,11 +136,9 @@
 
         .stock-sheet-input {
             display: grid;
-            /* Narrower fixed columns so number inputs aren't excessively wide */
-            grid-template-columns: 82px 82px 56px; /* Length | Width | Qty */
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
             margin-bottom: 12px;
-            justify-content: start; /* Prevent stretching */
         }
 
         .stock-sheet-input input {
@@ -176,7 +146,6 @@
             border: 1px solid #ddd;
             border-radius: 2px;
             font-size: 12px;
-            width: 100%;
         }
 
         .options {
@@ -346,7 +315,7 @@
 
         .panel-headers {
             display: grid;
-            grid-template-columns: 60px 50px 64px 64px 40px 1fr; /* Slightly narrower fraction columns */
+            grid-template-columns: 60px 50px 40px 30px 30px;
             gap: 8px;
             font-weight: 600;
             font-size: 11px;
@@ -354,30 +323,19 @@
             padding: 4px 0;
             border-bottom: 1px solid #ddd;
             margin-bottom: 8px;
-            min-width: 340px; /* Ensure grid doesn't collapse too small; triggers horizontal scroll if needed */
-        }
-        .fraction-cell {
-            font-size: 11px;
-            color: #444;
-            font-family: 'Segoe UI', Roboto, sans-serif;
-            padding: 2px 0;
-            line-height: 1.1;
-            white-space: nowrap;
         }
     </style>
 </head>
 <body>
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-resizer" id="sidebarResizer" title="Drag to resize sidebar"></div>
+    <div class="sidebar">
         <div class="section">
             <div class="section-header">📋 Panels</div>
             <div class="section-content">
                 <div class="panel-headers">
                     <div>Length</div>
                     <div>Width</div>
-                    <div>Fraction L</div>
-                    <div>Fraction W</div>
                     <div>Qty</div>
+                    <div></div>
                     <div></div>
                 </div>
                 <div class="panel-list" id="panelList">
@@ -448,140 +406,44 @@
         let placedPieces = [];
         let draggedElement = null;
         let dragOffset = { x: 0, y: 0 };
-        let isResizingSidebar = false;
 
-        // Persistence key
-        const STORAGE_KEY = 'woodCuttingOptimizerState_v1';
+        // Initialize with default panels
+        const defaultPanels = [
+            { length: 24, width: 14.62, qty: 2 },
+            { length: 20.98, width: 9.74, qty: 1 },
+            { length: 24, width: 9.74, qty: 1 },
+            { length: 13.36, width: 9.74, qty: 1 },
+            { length: 13.99, width: 9.74, qty: 1 },
+            { length: 10.97, width: 9.74, qty: 1 },
+            { length: 14.18, width: 9.74, qty: 1 }
+        ];
 
-        function saveState() {
-            try {
-                const state = {
-                    version: 1,
-                    panels: panels.map(p => ({ length: +p.length, width: +p.width, qty: +p.qty })),
-                    stockSheet: { ...stockSheets[0] },
-                    kerf: parseFloat(document.getElementById('kerfThickness').value) || 0.25
-                };
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-            } catch (e) {
-                console.warn('Failed to save state', e);
-            }
-        }
-
-        function loadState() {
-            try {
-                const raw = localStorage.getItem(STORAGE_KEY);
-                if (!raw) return false;
-                const state = JSON.parse(raw);
-                if (!state || typeof state !== 'object') return false;
-
-                // Basic validation
-                if (Array.isArray(state.panels)) {
-                    panels = state.panels.filter(p => p && p.length > 0 && p.width > 0 && p.qty > 0);
-                }
-                if (state.stockSheet && state.stockSheet.length > 0 && state.stockSheet.width > 0) {
-                    stockSheets = [{ length: +state.stockSheet.length, width: +state.stockSheet.width, qty: +state.stockSheet.qty || 1 }];
-                }
-                if (state.kerf !== undefined) {
-                    document.getElementById('kerfThickness').value = +state.kerf;
-                }
-                return true;
-            } catch (e) {
-                console.warn('Failed to load saved state', e);
-                return false;
-            }
-        }
-
-        // Sidebar resize setup
-        (function initSidebarResize() {
-            const sidebar = document.getElementById('sidebar');
-            const handle = document.getElementById('sidebarResizer');
-            // Restore previous width if stored
-            const saved = localStorage.getItem('sidebarWidth');
-            if (saved) {
-                const w = parseInt(saved, 10);
-                if (!isNaN(w)) sidebar.style.width = w + 'px';
-            }
-
-            const minW = 240;
-            const maxW = 640;
-
-            const onMouseMove = (e) => {
-                if (!isResizingSidebar) return;
-                const newWidth = Math.min(maxW, Math.max(minW, e.clientX));
-                sidebar.style.width = newWidth + 'px';
-            };
-
-            const onMouseUp = () => {
-                if (isResizingSidebar) {
-                    isResizingSidebar = false;
-                    sidebar.classList.remove('resizing');
-                    localStorage.setItem('sidebarWidth', parseInt(sidebar.getBoundingClientRect().width, 10));
-                    window.removeEventListener('mousemove', onMouseMove);
-                    window.removeEventListener('mouseup', onMouseUp);
-                }
-            };
-
-            handle.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                isResizingSidebar = true;
-                sidebar.classList.add('resizing');
-                window.addEventListener('mousemove', onMouseMove);
-                window.addEventListener('mouseup', onMouseUp);
-            });
-        })();
-
-        // Initialize (attempt load; else seed defaults)
-        (function init() {
-            const loaded = loadState();
-            if (!loaded) {
-                const defaultPanels = [
-                    { length: 24, width: 14.62, qty: 2 },
-                    { length: 20.98, width: 9.74, qty: 1 },
-                    { length: 24, width: 9.74, qty: 1 },
-                    { length: 13.36, width: 9.74, qty: 1 },
-                    { length: 13.99, width: 9.74, qty: 1 },
-                    { length: 10.97, width: 9.74, qty: 1 },
-                    { length: 14.18, width: 9.74, qty: 1 }
-                ];
-                panels = defaultPanels.slice();
-            }
-            renderPanels();
-            updateCuttingBoard();
-            updateStockDisplay();
-            optimizeCutting();
-        })();
+        // Initialize
+        defaultPanels.forEach(panel => panels.push(panel));
+        renderPanels();
+        updateCuttingBoard();
+        updateStockDisplay();
+        optimizeCutting();
 
         function addPanel() {
-            // Grab inputs & fall back to placeholders if user left them blank (placeholders show suggested defaults)
-            const lengthInput = document.getElementById('newLength');
-            const widthInput = document.getElementById('newWidth');
-            const qtyInput = document.getElementById('newQty');
+            const length = parseFloat(document.getElementById('newLength').value);
+            const width = parseFloat(document.getElementById('newWidth').value);
+            const qty = parseInt(document.getElementById('newQty').value) || 1;
 
-            const length = parseFloat(lengthInput.value || lengthInput.placeholder);
-            const width = parseFloat(widthInput.value || widthInput.placeholder);
-            const qty = parseInt(qtyInput.value || qtyInput.placeholder || '1') || 1;
-
-            // Only add if numeric & positive
-            if (!isNaN(length) && !isNaN(width) && length > 0 && width > 0) {
+            if (length && width) {
                 panels.push({ length, width, qty });
                 renderPanels();
-                // Immediately re-run optimization to include the new panel pieces
-                optimizeCutting();
-                saveState();
-                // Clear the length/width inputs (qty resets to 1)
-                lengthInput.value = '';
-                widthInput.value = '';
-                qtyInput.value = '1';
-            } else {
-                // Light feedback via console; (UI message could be enhancement later)
-                console.warn('Panel not added: provide valid numeric length & width.');
+                
+                // Clear inputs
+                document.getElementById('newLength').value = '';
+                document.getElementById('newWidth').value = '';
+                document.getElementById('newQty').value = '1';
             }
         }
 
         function removePanel(index) {
             panels.splice(index, 1);
             renderPanels();
-            saveState();
         }
 
         function renderPanels() {
@@ -591,40 +453,17 @@
             panels.forEach((panel, index) => {
                 const div = document.createElement('div');
                 div.className = 'panel-item';
-                const fracL = toSixteenthFraction(panel.length);
-                const fracW = toSixteenthFraction(panel.width);
                 div.innerHTML = `
-                    <input type="number" value="${panel.length}" onchange="updatePanel(${index}, 'length', this.value)" step="0.01" title="Decimal length">
-                    <input type="number" value="${panel.width}" onchange="updatePanel(${index}, 'width', this.value)" step="0.01" title="Decimal width">
-                    <div class="fraction-cell" title="Nearest 1/16\"">${fracL}</div>
-                    <div class="fraction-cell" title="Nearest 1/16\"">${fracW}</div>
+                    <input type="number" value="${panel.length}" onchange="updatePanel(${index}, 'length', this.value)" step="0.01">
+                    <input type="number" value="${panel.width}" onchange="updatePanel(${index}, 'width', this.value)" step="0.01">
                     <input type="number" value="${panel.qty}" onchange="updatePanel(${index}, 'qty', this.value)" min="1" class="qty">
                     <div class="actions">
-                        <button class="btn btn-sm btn-success" title="Keep">✓</button>
-                        <button class="btn btn-sm btn-danger" onclick="removePanel(${index})" title="Remove">✕</button>
+                        <button class="btn btn-sm btn-success">✓</button>
+                        <button class="btn btn-sm btn-danger" onclick="removePanel(${index})">✕</button>
                     </div>
                 `;
                 container.appendChild(div);
             });
-        }
-
-        // Convert decimal inches to nearest 1/16" fraction string (e.g., 14 5/16)
-        function toSixteenthFraction(value) {
-            if (isNaN(value)) return '';
-            const inches = Math.floor(value);
-            const remainder = value - inches;
-            let sixteenths = Math.round(remainder * 16);
-            // Handle rollover (e.g., 15.99 rounds to next inch)
-            if (sixteenths === 16) {
-                return (inches + 1).toString();
-            }
-            if (sixteenths === 0) return inches.toString();
-            // Reduce fraction (e.g., 8/16 -> 1/2)
-            const gcd = (a,b)=> b ? gcd(b, a%b) : a;
-            const g = gcd(sixteenths, 16);
-            const num = sixteenths / g;
-            const den = 16 / g;
-            return inches > 0 ? `${inches} ${num}/${den}` : `${num}/${den}`;
         }
 
         function updatePanel(index, field, value) {
@@ -633,7 +472,6 @@
             } else {
                 panels[index][field] = parseFloat(value) || 0;
             }
-            saveState();
         }
 
         function addStockSheet() {
@@ -648,7 +486,6 @@
                 // Clear the cutting board and re-optimize with new dimensions
                 document.getElementById('cuttingBoard').innerHTML = '';
                 optimizeCutting();
-                saveState();
             }
         }
 
@@ -730,8 +567,6 @@
             });
 
             updateStats(placedRects, sheet);
-            // Save after optimization so latest derived results stored (panels, stock changes, kerf). Layout itself not persisted.
-            saveState();
         }
 
         function findBestPosition(piece, placedRects, sheet, kerf) {
@@ -817,10 +652,9 @@
             draggedElement = e.target;
             e.target.classList.add('dragging');
             
-            // Calculate offset relative to the element's current position
-            const elementRect = e.target.getBoundingClientRect();
-            dragOffset.x = e.clientX - elementRect.left;
-            dragOffset.y = e.clientY - elementRect.top;
+            const rect = e.target.getBoundingClientRect();
+            dragOffset.x = e.clientX - rect.left;
+            dragOffset.y = e.clientY - rect.top;
         }
 
         function handleDragEnd(e) {
@@ -833,39 +667,24 @@
         // Allow dropping on the cutting board
         document.getElementById('cuttingBoard').addEventListener('dragover', e => {
             e.preventDefault();
-            if (e.currentTarget === document.getElementById('cuttingBoard')) {
-                e.currentTarget.classList.add('dragging-over');
-            }
+            e.target.classList.add('dragging-over');
         });
 
         document.getElementById('cuttingBoard').addEventListener('dragleave', e => {
-            if (e.currentTarget === document.getElementById('cuttingBoard')) {
-                e.currentTarget.classList.remove('dragging-over');
-            }
+            e.target.classList.remove('dragging-over');
         });
 
         document.getElementById('cuttingBoard').addEventListener('drop', e => {
             e.preventDefault();
-            const board = document.getElementById('cuttingBoard');
-            board.classList.remove('dragging-over');
+            e.target.classList.remove('dragging-over');
             
             if (draggedElement) {
-                // Get the cutting board's position
-                const boardRect = board.getBoundingClientRect();
-                
-                // Calculate new position relative to the cutting board
+                const boardRect = e.target.getBoundingClientRect();
                 const newX = e.clientX - boardRect.left - dragOffset.x;
                 const newY = e.clientY - boardRect.top - dragOffset.y;
                 
-                // Constrain to cutting board bounds
-                const maxX = board.clientWidth - draggedElement.offsetWidth;
-                const maxY = board.clientHeight - draggedElement.offsetHeight;
-                
-                const constrainedX = Math.max(0, Math.min(newX, maxX));
-                const constrainedY = Math.max(0, Math.min(newY, maxY));
-                
-                draggedElement.style.left = constrainedX + 'px';
-                draggedElement.style.top = constrainedY + 'px';
+                draggedElement.style.left = Math.max(0, newX) + 'px';
+                draggedElement.style.top = Math.max(0, newY) + 'px';
             }
         });
 
@@ -893,11 +712,6 @@
             if (e.key === 'Enter' && (e.target.id === 'newLength' || e.target.id === 'newWidth' || e.target.id === 'newQty')) {
                 addPanel();
             }
-        });
-
-        // Persist kerf changes
-        document.getElementById('kerfThickness').addEventListener('change', () => {
-            saveState();
         });
     </script>
 </body>
