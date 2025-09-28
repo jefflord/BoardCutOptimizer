@@ -414,7 +414,7 @@
                 </div>
                 <div style='margin-top:6px; font-weight:600;'>Pieces on Sheet</div>
                 <div id='sheetPanelList'>${pieceListHtml}</div>
-                <div style='margin-top:6px;'><small>Drag pieces to adjust; export captures current view (zoom ignored, real dimensions scaled graphically).</small></div>`; if(btn){ btn.disabled=false; btn.onclick = ()=> exportSheetAsPNG(sheetIndex); }
+                `; if(btn){ btn.disabled=false; btn.onclick = ()=> exportSheetAsPNG(sheetIndex); }
         }
         // ===== Export sheet to PNG (simple canvas drawing) =====
         function exportSheetAsPNG(sheetIndex) { const sheet = expandedSheets[sheetIndex]; if(!sheet) return; const rects = placedRectsGlobal.filter(r=>r.sheetIndex===sheetIndex); const padding = 28; const userScale = Math.min(40, Math.max(2, parseInt(document.getElementById('exportScaleInput')?.value,10)||12)); const baseScale = userScale; const dpr = (window.devicePixelRatio||1); const scale = baseScale; // logical px per inch; we'll upscale canvas by DPR
