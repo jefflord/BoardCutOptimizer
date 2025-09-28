@@ -156,6 +156,20 @@
                 </div>
             </div>
         </div>
+        <div class="section">
+            <div class="section-header">💾 Profiles</div>
+            <div class="section-content">
+                <div style="display:flex; gap:6px; margin-bottom:8px;">
+                    <input type="text" id="profileNameInput" placeholder="Profile name" style="flex:1; padding:4px; border:1px solid #ccc; font-size:12px;">
+                    <button class="btn btn-sm" onclick="handleSaveProfile()" title="Save current setup as profile">Save</button>
+                </div>
+                <div id="profilesMessage" style="font-size:11px; margin-bottom:6px; color:#555; line-height:1.3;"></div>
+                <div id="profilesList" style="max-height:150px; overflow-y:auto; font-size:11px; border:1px solid #eee; padding:4px; border-radius:4px; background:#fafafa;" aria-label="Saved profiles list"></div>
+                <div style="margin-top:6px; font-size:10px; color:#666; line-height:1.25;">
+                    Profiles store panels, sheet definitions, kerf, fractions toggle, zoom & export resolution. Saving with an existing name overwrites it.
+                </div>
+            </div>
+        </div>
     </div>
     <div class="main-content">
         <div class="canvas-container">
@@ -456,6 +470,72 @@
         function parseSubBoxFormat(text) { const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0); if (!lines.length) return []; if (/\bSize\b/i.test(lines[0]) && /\bQuantity\b/i.test(lines[0])) { lines.shift(); } const results = []; const sizeRegex = /([0-9]+(?:\.[0-9]+)?)\s*(?:"|in|inch|in\.)?\s*[×x]\s*([0-9]+(?:\.[0-9]+)?)\s*(?:"|in|inch|in\.)?/i; lines.forEach(line => { const cols = line.split(/\t+/); if (cols.length < 3) { if (line.includes('×') || line.toLowerCase().includes('x')) { const m = sizeRegex.exec(line); if (m) { const qtyMatch = line.trim().match(/(\d+)\s*$/); const qty = qtyMatch ? parseInt(qtyMatch[1],10) : 1; const detail = line.slice(0, m.index).trim().replace(/\s{2,}/g,' '); const length = parseFloat(m[1]); const width = parseFloat(m[2]); if (isFinite(length) && isFinite(width) && qty>0) { results.push({ length, width, qty, label: detail }); } } } return; } const detail = cols[0].trim(); const sizeStr = cols[1].trim(); const qtyStr = cols[2].trim(); const m = sizeRegex.exec(sizeStr); if (!m) return; const length = parseFloat(m[1]); const width = parseFloat(m[2]); let qty = parseInt(qtyStr,10); if (!isFinite(qty) || qty <= 0) qty = 1; if (isFinite(length) && isFinite(width) && length>0 && width>0) { results.push({ length, width, qty, label: detail }); } }); return results; }
         function applyImportedPanels() { if (!importedPanelsBuffer.length) { setImportMessage('Nothing to add. Parse first.', 'warn'); return; } importedPanelsBuffer.forEach(p => panels.push(p)); renderPanels(); optimizeCutting(); saveState(); setImportMessage(`Added ${importedPanelsBuffer.length} panel${importedPanelsBuffer.length!==1?'s':''}.`, 'ok'); importedPanelsBuffer = []; const applyBtn = document.getElementById('applyImportedBtn'); if (applyBtn) applyBtn.disabled = true; }
         // =========================================
+        // ========== Profiles (Named Saved States) ==========
+        const PROFILES_KEY = 'woodCuttingProfiles_v1';
+        function readProfilesMap() {
+            try { const raw = localStorage.getItem(PROFILES_KEY); if(!raw) return {}; const obj = JSON.parse(raw); return obj && typeof obj==='object' ? obj : {}; } catch(e){ console.warn('Failed reading profiles', e); return {}; }
+        }
+        function writeProfilesMap(map) { try { localStorage.setItem(PROFILES_KEY, JSON.stringify(map)); } catch(e){ console.warn('Failed writing profiles', e); } }
+        function collectCurrentStateForProfile() {
+            // Reuse saveState logic but return object instead of writing to STORAGE_KEY
+            const exportScaleVal = parseInt(document.getElementById('exportScaleInput')?.value,10)||12;
+            return { version:4, panels: panels.map(p=>({ length:+p.length, width:+p.width, qty:+p.qty, label:p.label||'' })), stockSheets: stockSheets.map(s=>({ length:+s.length, width:+s.width, qty:+s.qty, label:s.label||'' })), kerf:getKerfValue(), zoom:userZoom, showFractions: showFractionsEnabled(), exportScale: exportScaleVal, savedAt: new Date().toISOString() };
+        }
+        function applyProfileState(state) {
+            if(!state) return; // basic validation
+            if(Array.isArray(state.panels)) { panels = state.panels.filter(p=>p && p.length>0 && p.width>0 && p.qty>0).map(p=>({...p})); }
+            if(Array.isArray(state.stockSheets)) { stockSheets = state.stockSheets.filter(s=>s && s.length>0 && s.width>0 && s.qty>0).map(s=>({...s})); }
+            if(state.kerf!==undefined) { const kerfEl = document.getElementById('kerfThickness'); if(kerfEl) kerfEl.value = state.kerf; }
+            if(typeof state.showFractions==='boolean') { const fracCb = document.getElementById('showFractionsDiagram'); if(fracCb) fracCb.checked = !!state.showFractions; }
+            if(state.zoom && typeof state.zoom==='number') { userZoom = state.zoom; const slider = document.getElementById('zoomSlider'); if(slider) slider.value = Math.round(userZoom*100); }
+            if(state.exportScale) { const esi = document.getElementById('exportScaleInput'); if(esi) esi.value = state.exportScale; }
+            renderPanels(); renderStockSheets(); optimizeCutting(); updateZoom(); saveState(); updatePieceDimensionDisplays();
+        }
+        function handleSaveProfile() {
+            const nameInput = document.getElementById('profileNameInput'); if(!nameInput) return;
+            const nameRaw = (nameInput.value||'').trim(); if(!nameRaw) { setProfilesMessage('Enter a profile name first.', 'warn'); return; }
+            const safeName = nameRaw.replace(/[\r\n\t]+/g,' ').substring(0,80);
+            const map = readProfilesMap();
+            map[safeName] = collectCurrentStateForProfile();
+            writeProfilesMap(map);
+            setProfilesMessage(`Saved profile "${escapeHtml(safeName)}".`, 'ok');
+            nameInput.value = safeName; // maintain final sanitized name
+            renderProfilesList();
+        }
+        function handleLoadProfile(name) {
+            const map = readProfilesMap();
+            let key = name;
+            let state = map[key];
+            if(!state && /%[0-9A-Fa-f]{2}/.test(key)) { // try decode if encoded
+                try { const dec = decodeURIComponent(key); if(map[dec]) { key = dec; state = map[dec]; } } catch(e){}
+            }
+            if(!state) { setProfilesMessage('Profile not found (maybe deleted in another tab).', 'error'); renderProfilesList(); return; }
+            applyProfileState(state);
+            setProfilesMessage(`Loaded profile "${escapeHtml(key)}".`, 'ok');
+            const nameInput = document.getElementById('profileNameInput'); if(nameInput) nameInput.value = key;
+        }
+        function handleDeleteProfile(name) {
+            const map = readProfilesMap();
+            let key = name; if(!map[key] && /%[0-9A-Fa-f]{2}/.test(key)) { try { const dec = decodeURIComponent(key); if(map[dec]) key=dec; } catch(e){} }
+            if(!map[key]) return; delete map[key]; writeProfilesMap(map); setProfilesMessage(`Deleted profile "${escapeHtml(key)}".`, 'ok'); renderProfilesList();
+        }
+        function setProfilesMessage(msg, type) {
+            const el = document.getElementById('profilesMessage'); if(!el) return; const colors = { ok:'#155724', warn:'#856404', error:'#721c24' }; const bgs = { ok:'#d4edda', warn:'#fff3cd', error:'#f8d7da' }; el.style.background = bgs[type]||'#eee'; el.style.color = colors[type]||'#333'; el.style.padding='4px 6px'; el.style.border='1px solid rgba(0,0,0,0.1)'; el.style.borderRadius='3px'; el.innerHTML = msg; }
+        function renderProfilesList() {
+            const listEl = document.getElementById('profilesList'); if(!listEl) return; const map = readProfilesMap(); const names = Object.keys(map).sort((a,b)=> a.localeCompare(b)); if(!names.length){ listEl.innerHTML = '<div style="font-style:italic; color:#777; padding:4px;">No saved profiles.</div>'; return; }
+            listEl.innerHTML = names.map(name => {
+                const st = map[name]; const dt = st && st.savedAt ? new Date(st.savedAt).toLocaleString() : '';
+                return `<div style='display:grid; grid-template-columns:1fr auto auto; gap:4px; align-items:center; padding:3px 2px; border-bottom:1px solid #e5e5e5;'>
+                    <div style='min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' title='Saved ${escapeHtml(dt)}'>${escapeHtml(name)}</div>
+                    <button class='btn btn-sm' style='background:#17a2b8;' title='Load profile' onclick='handleLoadProfile("${encodeURIComponent(name)}".replace(/%20/g," "))'>Load</button>
+                    <button class='btn btn-sm btn-danger' title='Delete profile' onclick='handleDeleteProfile("${encodeURIComponent(name)}".replace(/%20/g," "))'>✕</button>
+                </div>`; }).join('');
+        }
+        // Initialize profile list on load (after DOM ready). Delay to ensure sections exist.
+        window.addEventListener('load', ()=> { renderProfilesList(); });
+        // Listen to storage events to sync across tabs
+        window.addEventListener('storage', (e)=> { if(e.key===PROFILES_KEY) { renderProfilesList(); setProfilesMessage('Profiles updated in another tab.', 'warn'); } });
+        // =====================================================
     </script>
     </body>
     </html>
