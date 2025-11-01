@@ -390,9 +390,87 @@
     function showFractionsEnabled() { const cb = document.getElementById('showFractionsDiagram'); return cb && cb.checked; }
     function pieceDimensionsText(length, width) { if (showFractionsEnabled()) { return `${toSixteenthFraction(length)} × ${toSixteenthFraction(width)}`; } return `${length} × ${width}`; }
     function updatePieceDimensionDisplays() { document.querySelectorAll('.cut-piece').forEach(el => { const len = parseFloat(el.dataset.length); const wid = parseFloat(el.dataset.width); if (!isNaN(len) && !isNaN(wid)) { const dims = el.querySelector('.dimensions'); if (dims) dims.textContent = pieceDimensionsText(len, wid); } }); if (selectedPieceEl) updatePanelDetailsFromElement(selectedPieceEl); }
-    function attachBoardDragEvents(board){ board.addEventListener('dragover', e=>{ e.preventDefault(); board.classList.add('dragging-over'); }); board.addEventListener('dragleave', e=>{ if (e.currentTarget===board) board.classList.remove('dragging-over'); }); board.addEventListener('drop', e=>{ e.preventDefault(); board.classList.remove('dragging-over'); if (draggedElement){ const scale = baseScale * userZoom; const r = board.getBoundingClientRect(); const newX = e.clientX - r.left - dragOffset.x; const newY = e.clientY - r.top - dragOffset.y; const maxX = board.clientWidth - draggedElement.offsetWidth; const maxY = board.clientHeight - draggedElement.offsetHeight; const cx = Math.max(0, Math.min(newX, maxX)); const cy = Math.max(0, Math.min(newY, maxY)); draggedElement.style.left = cx + 'px'; draggedElement.style.top = cy + 'px'; draggedElement.dataset.sheetIndex = board.dataset.sheetIndex; draggedElement.dataset.xInches=(cx/scale).toFixed(4); draggedElement.dataset.yInches=(cy/scale).toFixed(4); if (selectedPieceEl===draggedElement) updatePanelDetailsFromElement(draggedElement); syncRectFromElement(draggedElement); if(selectedSheetIndex!==null && parseInt(board.dataset.sheetIndex,10)===selectedSheetIndex) { updateSheetDetails(selectedSheetIndex); } } }); }
+    // Enhanced drag/drop: on drop we attempt to place piece without overlapping others, respecting kerf spacing.
+    function attachBoardDragEvents(board){
+        board.addEventListener('dragover', e=>{ e.preventDefault(); board.classList.add('dragging-over'); });
+        board.addEventListener('dragleave', e=>{ if (e.currentTarget===board) board.classList.remove('dragging-over'); });
+        board.addEventListener('drop', e=>{
+            e.preventDefault();
+            board.classList.remove('dragging-over');
+            if(!draggedElement) return;
+            const scale = baseScale * userZoom;
+            const r = board.getBoundingClientRect();
+            const rawX = e.clientX - r.left - dragOffset.x;
+            const rawY = e.clientY - r.top - dragOffset.y;
+            const maxX = board.clientWidth - draggedElement.offsetWidth;
+            const maxY = board.clientHeight - draggedElement.offsetHeight;
+            const clampedX = Math.max(0, Math.min(rawX, maxX));
+            const clampedY = Math.max(0, Math.min(rawY, maxY));
+            const targetSheetIndex = parseInt(board.dataset.sheetIndex,10)||0;
+            let proposedXInches = clampedX/scale;
+            let proposedYInches = clampedY/scale;
+            const lengthInches = parseFloat(draggedElement.dataset.length)||0;
+            const widthInches = parseFloat(draggedElement.dataset.width)||0;
+            const kerf = getKerfValue();
+            const canPlaceAt = (xIn,yIn)=> {
+                const sheetObj = expandedSheets[targetSheetIndex];
+                if(!sheetObj) return false;
+                if (xIn + lengthInches > sheetObj.length || yIn + widthInches > sheetObj.width) return false;
+                for (const rect of placedRectsGlobal) {
+                    if(rect.sheetIndex!==targetSheetIndex) continue;
+                    if(rect.piece && rect.piece.id === draggedElement.id) continue; // skip self
+                    if (!(xIn >= rect.x + rect.length + kerf ||
+                          xIn + lengthInches + kerf <= rect.x ||
+                          yIn >= rect.y + rect.width + kerf ||
+                          yIn + widthInches + kerf <= rect.y)) { return false; }
+                }
+                return true;
+            };
+            if(!canPlaceAt(proposedXInches, proposedYInches)) {
+                const candidates = [{x:0,y:0}];
+                placedRectsGlobal.forEach(rect=>{
+                    if(rect.sheetIndex!==targetSheetIndex) return;
+                    candidates.push({x:rect.x + rect.length + kerf, y:rect.y});
+                    candidates.push({x:rect.x, y:rect.y + rect.width + kerf});
+                    candidates.push({x:rect.x + rect.length + kerf, y:rect.y + rect.width + kerf});
+                });
+                const sheetObj = expandedSheets[targetSheetIndex];
+                const uniq = new Set();
+                const filtered = candidates.filter(c=> c.x + lengthInches <= sheetObj.length && c.y + widthInches <= sheetObj.width && !uniq.has(c.x+','+c.y) && (uniq.add(c.x+','+c.y)||true));
+                filtered.sort((a,b)=> {
+                    const da = Math.hypot(a.x - proposedXInches, a.y - proposedYInches);
+                    const db = Math.hypot(b.x - proposedXInches, b.y - proposedYInches);
+                    if(da!==db) return da-db;
+                    return a.y===b.y? a.x-b.x : a.y-b.y;
+                });
+                let snapped=false;
+                for(const cand of filtered){ if(canPlaceAt(cand.x,cand.y)){ proposedXInches=cand.x; proposedYInches=cand.y; snapped=true; break; } }
+                if(!snapped){
+                    const origX = parseFloat(draggedElement.dataset.origX)||0;
+                    const origY = parseFloat(draggedElement.dataset.origY)||0;
+                    if(canPlaceAt(origX,origY)){ proposedXInches=origX; proposedYInches=origY; snapped=true; }
+                }
+                if(!snapped){
+                    // Coarse grid search fallback
+                    outer: for(let gy=0; gy <= sheetObj.width - widthInches; gy += kerf||0.5){
+                        for(let gx=0; gx <= sheetObj.length - lengthInches; gx += kerf||0.5){
+                            if(canPlaceAt(gx,gy)){ proposedXInches=gx; proposedYInches=gy; snapped=true; break outer; }
+                        }
+                    }
+                }
+            }
+            draggedElement.style.left = (proposedXInches*scale)+'px';
+            draggedElement.style.top = (proposedYInches*scale)+'px';
+            draggedElement.dataset.sheetIndex = targetSheetIndex;
+            draggedElement.dataset.xInches = proposedXInches.toFixed(4);
+            draggedElement.dataset.yInches = proposedYInches.toFixed(4);
+            if (selectedPieceEl===draggedElement) updatePanelDetailsFromElement(draggedElement);
+            syncRectFromElement(draggedElement);
+            if(selectedSheetIndex!==null && targetSheetIndex===selectedSheetIndex) { updateSheetDetails(selectedSheetIndex); }
+        });
+    }
     function syncRectFromElement(el){ if(!el) return; const id = el.id; const rect = placedRectsGlobal.find(r=> r.piece && r.piece.id === id); if(!rect) return; rect.x = parseFloat(el.dataset.xInches)||0; rect.y = parseFloat(el.dataset.yInches)||0; rect.sheetIndex = parseInt(el.dataset.sheetIndex,10) || 0; }
-        function handleDragStart(e) { draggedElement = e.target; e.target.classList.add('dragging'); const elementRect = e.target.getBoundingClientRect(); dragOffset.x = e.clientX - elementRect.left; dragOffset.y = e.clientY - elementRect.top; }
+    function handleDragStart(e) { draggedElement = e.target; e.target.classList.add('dragging'); const elementRect = e.target.getBoundingClientRect(); dragOffset.x = e.clientX - elementRect.left; dragOffset.y = e.clientY - elementRect.top; const scale = baseScale * userZoom; const origXpx = parseFloat(draggedElement.style.left)||0; const origYpx = parseFloat(draggedElement.style.top)||0; draggedElement.dataset.origX = (origXpx/scale).toFixed(4); draggedElement.dataset.origY = (origYpx/scale).toFixed(4); }
     function handleDragEnd(e) { if (draggedElement) { draggedElement.classList.remove('dragging'); const scale = baseScale * userZoom; const newXpx = parseFloat(draggedElement.style.left) || 0; const newYpx = parseFloat(draggedElement.style.top) || 0; draggedElement.dataset.xInches = (newXpx / scale).toFixed(4); draggedElement.dataset.yInches = (newYpx / scale).toFixed(4); syncRectFromElement(draggedElement); if (selectedPieceEl === draggedElement) { updatePanelDetailsFromElement(draggedElement); }
         const sIdx = parseInt(draggedElement.dataset.sheetIndex,10); if(selectedSheetIndex===sIdx) { updateSheetDetails(selectedSheetIndex); }
         draggedElement = null; } }
